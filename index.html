@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Kharcha — Expense Tracker</title>
+<meta name="theme-color" content="#0e1613">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kharcha">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+:root{
+  --bg:#0e1613; --card:#17211d; --card2:#1d2a25; --line:#26352f;
+  --txt:#eaf2ee; --dim:#8fa69c; --green:#34d399; --red:#f87171; --amber:#fbbf24;
+  --accent:#10b981; --accent-dk:#0b8a61;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{margin:0; padding:0; background:var(--bg); color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:16px;}
+body{padding-bottom:calc(74px + env(safe-area-inset-bottom));}
+header{position:sticky; top:0; z-index:20; background:rgba(14,22,19,.92); backdrop-filter:blur(12px);
+  padding:calc(10px + env(safe-area-inset-top)) 16px 10px; border-bottom:1px solid var(--line);}
+.hrow{display:flex; align-items:center; justify-content:space-between; gap:8px;}
+.mnav{display:flex; align-items:center; gap:4px; font-weight:700; font-size:17px;}
+.mnav button{background:none; border:none; color:var(--accent); font-size:22px; padding:2px 10px; cursor:pointer;}
+.ratechip{background:var(--card2); border:1px solid var(--line); color:var(--dim); border-radius:999px;
+  padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;}
+.ratechip b{color:var(--txt);}
+main{padding:14px 16px 20px; max-width:560px; margin:0 auto;}
+.cards{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:14px;}
+.card{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px 10px;}
+.card .lbl{font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px;}
+.card .val{font-size:16px; font-weight:800; line-height:1.2; word-break:break-word;}
+.card .sub{font-size:11px; color:var(--dim); margin-top:3px;}
+.pos{color:var(--green);} .neg{color:var(--red);} .amb{color:var(--amber);}
+h2{font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.8px; margin:20px 0 10px; font-weight:700;}
+.panel{background:var(--card); border:1px solid var(--line); border-radius:18px; padding:14px;}
+.seg{display:flex; background:var(--card2); border-radius:12px; padding:3px; margin-bottom:12px;}
+.seg button{flex:1; border:none; background:none; color:var(--dim); font-weight:700; font-size:14px;
+  padding:9px 4px; border-radius:10px; cursor:pointer;}
+.seg button.on{background:var(--accent); color:#04120c;}
+.amtrow{display:flex; gap:8px; margin-bottom:12px;}
+.amtrow input{flex:1; background:var(--card2); border:1px solid var(--line); color:var(--txt);
+  border-radius:14px; padding:14px; font-size:26px; font-weight:800; width:100%; min-width:0;}
+.curbtn{background:var(--card2); border:1px solid var(--line); color:var(--txt); border-radius:14px;
+  padding:0 18px; font-size:20px; font-weight:800; cursor:pointer; min-width:74px;}
+.curbtn.usd{color:var(--amber);}
+.chips{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;}
+.chip{background:var(--card2); border:1px solid var(--line); color:var(--txt); border-radius:999px;
+  padding:9px 13px; font-size:14px; font-weight:600; cursor:pointer;}
+.chip.on{background:var(--accent); border-color:var(--accent); color:#04120c;}
+.frow{display:flex; gap:8px; margin-bottom:12px;}
+.frow input,.frow select{flex:1; background:var(--card2); border:1px solid var(--line); color:var(--txt);
+  border-radius:12px; padding:12px; font-size:15px; min-width:0;}
+input[type=date]{-webkit-appearance:none; appearance:none;}
+.preview{background:var(--card2); border-radius:12px; padding:10px 12px; font-size:13px; color:var(--dim);
+  margin-bottom:12px; line-height:1.6;}
+.preview b{color:var(--txt);}
+.bigbtn{width:100%; background:var(--accent); color:#04120c; border:none; border-radius:14px;
+  padding:15px; font-size:17px; font-weight:800; cursor:pointer;}
+.bigbtn:active{background:var(--accent-dk);}
+.bigbtn.ghost{background:var(--card2); color:var(--txt); border:1px solid var(--line);}
+.bigbtn.danger{background:#3a1d1d; color:var(--red); border:1px solid #5a2a2a;}
+.item{display:flex; align-items:center; gap:12px; padding:12px 2px; border-bottom:1px solid var(--line); cursor:pointer;}
+.item:last-child{border-bottom:none;}
+.item .ico{width:40px; height:40px; border-radius:12px; background:var(--card2); display:flex;
+  align-items:center; justify-content:center; font-size:19px; flex-shrink:0;}
+.item .mid{flex:1; min-width:0;}
+.item .t1{font-weight:700; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.item .t2{font-size:12px; color:var(--dim); margin-top:2px;}
+.item .amt{text-align:right; font-weight:800; font-size:15px; white-space:nowrap;}
+.item .amt .orig{display:block; font-size:11px; color:var(--dim); font-weight:600;}
+.dayhead{font-size:12px; color:var(--dim); font-weight:700; margin:14px 2px 2px;}
+.duebtn{background:var(--accent); color:#04120c; border:none; border-radius:10px; padding:8px 14px;
+  font-weight:800; font-size:13px; cursor:pointer; flex-shrink:0;}
+.pill{font-size:11px; background:var(--card2); border-radius:999px; padding:3px 9px; color:var(--dim); font-weight:700;}
+.pill.paid{color:var(--green);}
+.bar{height:7px; background:var(--card2); border-radius:99px; overflow:hidden; margin-top:6px;}
+.bar i{display:block; height:100%; background:var(--accent); border-radius:99px;}
+.empty{text-align:center; color:var(--dim); padding:26px 10px; font-size:14px;}
+nav{position:fixed; bottom:0; left:0; right:0; z-index:30; display:flex; background:rgba(14,22,19,.95);
+  backdrop-filter:blur(12px); border-top:1px solid var(--line); padding:6px 4px calc(6px + env(safe-area-inset-bottom));}
+nav button{flex:1; background:none; border:none; color:var(--dim); font-size:10px; font-weight:700;
+  display:flex; flex-direction:column; align-items:center; gap:3px; padding:6px 2px; cursor:pointer;}
+nav button .nico{font-size:21px; line-height:1;}
+nav button.on{color:var(--accent);}
+.overlay{position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:40; display:none; align-items:flex-end; justify-content:center;}
+.overlay.show{display:flex;}
+.sheet{background:var(--card); border-radius:22px 22px 0 0; width:100%; max-width:560px; max-height:86vh;
+  overflow-y:auto; padding:18px 18px calc(20px + env(safe-area-inset-bottom));}
+.sheet h3{margin:0 0 16px; font-size:18px;}
+.sheet .grab{width:40px; height:4px; background:var(--line); border-radius:99px; margin:0 auto 14px;}
+.setrow{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:13px 2px; border-bottom:1px solid var(--line);}
+.setrow:last-child{border-bottom:none;}
+.setrow .sl{font-size:15px; font-weight:600;}
+.setrow .sd{font-size:12px; color:var(--dim); margin-top:2px;}
+.setrow input,.setrow select{background:var(--card2); border:1px solid var(--line); color:var(--txt);
+  border-radius:10px; padding:9px 11px; font-size:15px; width:110px; text-align:right;}
+.smallbtn{background:var(--card2); border:1px solid var(--line); color:var(--txt); border-radius:10px;
+  padding:8px 14px; font-weight:700; font-size:13px; cursor:pointer;}
+.hint{background:linear-gradient(135deg,#123a2c,#0e2b21); border:1px solid #1d5c44; border-radius:16px;
+  padding:14px; font-size:14px; line-height:1.6; margin-bottom:14px; position:relative;}
+.hint .x{position:absolute; top:8px; right:12px; background:none; border:none; color:var(--dim); font-size:18px; cursor:pointer;}
+.mt8{margin-top:8px;} .mt12{margin-top:12px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div class="mnav">
+      <button data-act="mprev">‹</button>
+      <span id="mlabel"></span>
+      <button data-act="mnext">›</button>
+    </div>
+    <button class="ratechip" data-act="raterefresh" id="ratechip"></button>
+  </div>
+</header>
+<main id="main"></main>
+<nav id="nav">
+  <button data-tab="home"><span class="nico">🏠</span>Home</button>
+  <button data-tab="hist"><span class="nico">🧾</span>History</button>
+  <button data-tab="rec"><span class="nico">🔁</span>Recurring</button>
+  <button data-tab="team"><span class="nico">👥</span>Team</button>
+  <button data-tab="set"><span class="nico">⚙️</span>Settings</button>
+</nav>
+<div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
+
+<script>
+'use strict';
+/* ================= data ================= */
+const KEY='kharcha-data-v1';
+const CATS=[
+  {id:'fuel',    n:'Fuel',            i:'⛽'},
+  {id:'grocery', n:'Groceries',       i:'🛒'},
+  {id:'daily',   n:'Daily Groceries', i:'🥬'},
+  {id:'meals',   n:'Meal Charges',    i:'🍽️'},
+  {id:'parking', n:'Car Parking',     i:'🅿️'},
+  {id:'rent',    n:'Room Rent',       i:'🏠'},
+  {id:'subs',    n:'Subscription',    i:'📱'},
+  {id:'car',     n:'Car Maintenance', i:'🔧'},
+  {id:'services',n:'Services',        i:'🧾'},
+  {id:'misc',    n:'Misc',            i:'📦'},
+];
+const catById=id=>CATS.find(c=>c.id===id)||CATS[CATS.length-1];
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const pad=n=>String(n).padStart(2,'0');
+const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());};
+const curYM=()=>todayStr().slice(0,7);
+
+function seed(){
+  return {
+    v:1,
+    settings:{taxPreset:'pseb', taxPct:0.25, manualRate:null, rate:{v:283, ts:0}, hideHint:false},
+    employees:[],
+    recurring:[
+      {id:uid(), name:'Room Rent',        cat:'rent',    amount:0,     cur:'PKR', period:'monthly'},
+      {id:uid(), name:'Meal Charges',     cat:'meals',   amount:0,     cur:'PKR', period:'monthly'},
+      {id:uid(), name:'Car Parking',      cat:'parking', amount:0,     cur:'PKR', period:'monthly'},
+      {id:uid(), name:'KAM',              cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
+      {id:uid(), name:'ZAR',              cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
+      {id:uid(), name:'Apple',            cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
+      {id:uid(), name:'Claude',           cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
+      {id:uid(), name:'Meta',             cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
+      {id:uid(), name:'Tax Return Filing',cat:'services',amount:0,     cur:'PKR', period:'yearly', month:9},
+    ],
+    txns:[]
+  };
+}
+function load(){
+  try{const j=JSON.parse(localStorage.getItem(KEY)); if(j&&j.txns) return j;}catch(e){}
+  return seed();
+}
+let S=load();
+const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
+
+/* ================= fx rate ================= */
+const rate=()=>S.settings.manualRate||S.settings.rate.v||283;
+async function refreshRate(force){
+  const r=S.settings.rate;
+  if(!force && r.ts && (Date.now()-r.ts)<12*3600*1000) return;
+  const chip=document.getElementById('ratechip');
+  if(chip) chip.textContent='updating…';
+  try{
+    const res=await fetch('https://open.er-api.com/v6/latest/USD',{cache:'no-store'});
+    const j=await res.json();
+    if(j&&j.rates&&j.rates.PKR){S.settings.rate={v:j.rates.PKR, ts:Date.now()}; save();}
+  }catch(e){/* offline — keep cached rate */}
+  render();
+}
+
+/* ================= helpers ================= */
+const nf=new Intl.NumberFormat('en-PK',{maximumFractionDigits:0});
+const fmt=n=>'Rs '+nf.format(Math.round(n));
+const fmtUSD=n=>'$'+(Math.round(n*100)/100).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:2});
+const pkrOf=t=>t.cur==='PKR'?t.amt:t.amt*(t.rate||rate());
+const incNet=t=>{const g=pkrOf(t); return g-(g*(t.taxPct||0)/100);};
+const incTax=t=>pkrOf(t)*(t.taxPct||0)/100;
+const monthTxns=ymv=>S.txns.filter(t=>t.date.slice(0,7)===ymv);
+const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const ymLabel=ymv=>{const[y,m]=ymv.split('-');return MONTHS[+m-1]+' '+y;};
+const fyOf=d=>{const y=+d.slice(0,4),m=+d.slice(5,7);return m>=7?y:y-1;};// PK fiscal year Jul–Jun
+const esc=s=>String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ================= view state ================= */
+let view={tab:'home', ym:curYM(), kind:'exp', cur:'PKR', cat:'fuel', empId:null};
+
+/* ================= render ================= */
+function render(){
+  document.getElementById('mlabel').textContent=ymLabel(view.ym);
+  const rc=document.getElementById('ratechip');
+  const manual=!!S.settings.manualRate;
+  rc.innerHTML='$1 = <b>Rs '+(Math.round(rate()*100)/100)+'</b> '+(manual?'✎':'⟳');
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===view.tab));
+  const m=document.getElementById('main');
+  if(view.tab==='home') m.innerHTML=homeHTML();
+  else if(view.tab==='hist') m.innerHTML=histHTML();
+  else if(view.tab==='rec') m.innerHTML=recHTML();
+  else if(view.tab==='team') m.innerHTML=teamHTML();
+  else m.innerHTML=setHTML();
+}
+
+function sums(ymv){
+  const ts=monthTxns(ymv);
+  let inc=0,tax=0,exp=0,pay=0;
+  ts.forEach(t=>{
+    if(t.kind==='inc'){inc+=incNet(t); tax+=incTax(t);}
+    else if(t.kind==='pay'){pay+=pkrOf(t);}
+    else exp+=pkrOf(t);
+  });
+  return {inc,tax,exp,pay,ts};
+}
+
+function homeHTML(){
+  const {inc,tax,exp,pay}=sums(view.ym);
+  const bal=inc-exp-pay;
+  const isIOS=/iP(hone|ad|od)/.test(navigator.userAgent);
+  const standalone=window.navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;
+  let h='';
+  if(isIOS&&!standalone&&!S.settings.hideHint){
+    h+='<div class="hint"><button class="x" data-act="hidehint">✕</button>📲 <b>Install on your iPhone:</b> tap the <b>Share</b> button in Safari, then <b>Add to Home Screen</b>. It becomes a full app that works offline and keeps your data forever.</div>';
+  }
+  h+='<div class="cards">'
+    +'<div class="card"><div class="lbl">Income (net)</div><div class="val pos">'+fmt(inc)+'</div><div class="sub">tax: '+fmt(tax)+'</div></div>'
+    +'<div class="card"><div class="lbl">Expenses</div><div class="val neg">'+fmt(exp+pay)+'</div><div class="sub">team: '+fmt(pay)+'</div></div>'
+    +'<div class="card"><div class="lbl">Balance</div><div class="val '+(bal>=0?'pos':'neg')+'">'+fmt(bal)+'</div><div class="sub">FY tax: '+fmt(fyTax())+'</div></div>'
+    +'</div>';
+
+  /* quick add */
+  h+='<h2>Quick add</h2><div class="panel">'
+    +'<div class="seg">'
+    +'<button data-kind="exp" class="'+(view.kind==='exp'?'on':'')+'">Expense</button>'
+    +'<button data-kind="inc" class="'+(view.kind==='inc'?'on':'')+'">Income</button>'
+    +'<button data-kind="pay" class="'+(view.kind==='pay'?'on':'')+'">Team Pay</button>'
+    +'</div>'
+    +'<div class="amtrow"><input id="qamt" type="number" inputmode="decimal" placeholder="0" step="any">'
+    +'<button class="curbtn '+(view.cur==='USD'?'usd':'')+'" data-act="curflip">'+(view.cur==='USD'?'$':'Rs')+'</button></div>';
+  if(view.kind==='exp'){
+    h+='<div class="chips">'+CATS.map(c=>'<span class="chip '+(view.cat===c.id?'on':'')+'" data-cat="'+c.id+'">'+c.i+' '+c.n+'</span>').join('')+'</div>';
+  }
+  if(view.kind==='inc'){
+    h+='<div class="preview" id="incprev">Gross, tax ('+S.settings.taxPct+'%) and net will show here as you type.</div>';
+  }
+  if(view.kind==='pay'){
+    if(S.employees.length===0){
+      h+='<div class="preview">No employees yet — add them in the <b>Team</b> tab first.</div>';
+    }else{
+      h+='<div class="chips">'+S.employees.map(e=>'<span class="chip '+(view.empId===e.id?'on':'')+'" data-emp="'+e.id+'">👤 '+esc(e.name)+'</span>').join('')+'</div>';
+    }
+  }
+  h+='<div class="frow"><input id="qdate" type="date" value="'+todayStr()+'"><input id="qnote" placeholder="Note (optional)"></div>'
+    +'<button class="bigbtn" data-act="qsave">Save</button></div>';
+
+  /* due recurring */
+  const due=dueList();
+  if(due.length){
+    h+='<h2>Due this month</h2><div class="panel">'+due.map(r=>{
+      const c=catById(r.cat);
+      const amtTxt=r.amount>0?(r.cur==='USD'?fmtUSD(r.amount)+' ≈ '+fmt(r.amount*rate()):fmt(r.amount)):'set amount';
+      return '<div class="item" data-recpay="'+r.id+'"><div class="ico">'+c.i+'</div>'
+        +'<div class="mid"><div class="t1">'+esc(r.name)+'</div><div class="t2">'+amtTxt+(r.period==='yearly'?' · yearly':'')+'</div></div>'
+        +'<button class="duebtn" data-recpay="'+r.id+'">Paid ✓</button></div>';
+    }).join('')+'</div>';
+  }
+
+  /* breakdown */
+  const ts=monthTxns(view.ym).filter(t=>t.kind!=='inc');
+  if(ts.length){
+    const by={};
+    ts.forEach(t=>{const k=t.kind==='pay'?'__team':t.cat||'misc'; by[k]=(by[k]||0)+pkrOf(t);});
+    const tot=Object.values(by).reduce((a,b)=>a+b,0)||1;
+    const rows=Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+      const c=k==='__team'?{i:'👥',n:'Team Payments'}:catById(k);
+      return '<div style="padding:9px 2px"><div style="display:flex;justify-content:space-between;font-size:14px"><span>'+c.i+' '+c.n+'</span><b>'+fmt(v)+'</b></div><div class="bar"><i style="width:'+Math.round(v/tot*100)+'%"></i></div></div>';
+    }).join('');
+    h+='<h2>Spending breakdown</h2><div class="panel">'+rows+'</div>';
+  }
+  return h;
+}
+
+function fyTax(){
+  const fy=fyOf(view.ym+'-01');
+  return S.txns.filter(t=>t.kind==='inc'&&fyOf(t.date)===fy).reduce((a,t)=>a+incTax(t),0);
+}
+
+function dueList(){
+  if(view.ym!==curYM()) return [];
+  const ts=monthTxns(view.ym);
+  const yr=view.ym.slice(0,4);
+  return S.recurring.filter(r=>{
+    if(r.period==='yearly'){
+      if(+view.ym.slice(5,7)!==(r.month||1)) return false;
+      return !S.txns.some(t=>t.recId===r.id&&t.date.slice(0,4)===yr);
+    }
+    return !ts.some(t=>t.recId===r.id);
+  });
+}
+
+function txnRow(t){
+  let ico,t1;
+  if(t.kind==='inc'){ico='💵'; t1='Freelance Income';}
+  else if(t.kind==='pay'){const e=S.employees.find(e=>e.id===t.empId); ico='👥'; t1='Pay — '+(e?e.name:'employee');}
+  else{const c=catById(t.cat); ico=c.i; t1=c.n;}
+  if(t.note) t1+=' · '+t.note;
+  const sign=t.kind==='inc'?'+':'−';
+  const cls=t.kind==='inc'?'pos':'';
+  const main=t.kind==='inc'?fmt(incNet(t)):fmt(pkrOf(t));
+  let orig='';
+  if(t.cur==='USD') orig='<span class="orig">'+fmtUSD(t.amt)+' @ '+(Math.round((t.rate||0)*100)/100)+'</span>';
+  else if(t.kind==='inc') orig='<span class="orig">tax '+fmt(incTax(t))+'</span>';
+  return '<div class="item" data-edit="'+t.id+'"><div class="ico">'+ico+'</div>'
+    +'<div class="mid"><div class="t1">'+esc(t1)+'</div><div class="t2">'+t.date+'</div></div>'
+    +'<div class="amt '+cls+'">'+sign+' '+main+orig+'</div></div>';
+}
+
+function histHTML(){
+  const ts=monthTxns(view.ym).slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  if(!ts.length) return '<div class="empty">No entries in '+ymLabel(view.ym)+' yet.<br>Add your first one from the Home tab 👇</div>';
+  let h='',day='';
+  ts.forEach(t=>{
+    if(t.date!==day){day=t.date; h+='<div class="dayhead">'+day+'</div><div class="panel" style="padding:2px 14px">';}
+    h+=txnRow(t);
+    const next=ts[ts.indexOf(t)+1];
+    if(!next||next.date!==day) h+='</div>';
+  });
+  const {inc,exp,pay}=sums(view.ym);
+  return '<div class="cards" style="grid-template-columns:1fr 1fr"><div class="card"><div class="lbl">In</div><div class="val pos">'+fmt(inc)+'</div></div><div class="card"><div class="lbl">Out</div><div class="val neg">'+fmt(exp+pay)+'</div></div></div>'+h;
+}
+
+function recHTML(){
+  let h='<h2>Recurring bills & subscriptions</h2><div class="panel" style="padding:2px 14px">';
+  h+=S.recurring.map(r=>{
+    const c=catById(r.cat);
+    const amt=r.amount>0?(r.cur==='USD'?fmtUSD(r.amount)+' ≈ '+fmt(r.amount*rate()):fmt(r.amount)):'tap to set amount';
+    const per=r.period==='yearly'?('yearly · '+MONTHS[(r.month||1)-1]):'monthly';
+    const paid=isPaid(r);
+    return '<div class="item" data-recedit="'+r.id+'"><div class="ico">'+c.i+'</div>'
+      +'<div class="mid"><div class="t1">'+esc(r.name)+'</div><div class="t2">'+amt+' · '+per+'</div></div>'
+      +'<span class="pill '+(paid?'paid':'')+'">'+(paid?'paid ✓':'pending')+'</span></div>';
+  }).join('');
+  h+='</div><button class="bigbtn ghost mt12" data-act="recadd">+ Add recurring item</button>'
+    +'<div class="preview mt12">Monthly items show in <b>Due this month</b> on Home until you mark them paid. Yearly items (like tax return filing) appear in their due month.</div>';
+  return h;
+}
+function isPaid(r){
+  if(r.period==='yearly') return S.txns.some(t=>t.recId===r.id&&t.date.slice(0,4)===view.ym.slice(0,4));
+  return monthTxns(curYM()).some(t=>t.recId===r.id);
+}
+
+function teamHTML(){
+  let h='<h2>Team — home-based employees</h2>';
+  if(!S.employees.length) h+='<div class="empty">No employees yet.</div>';
+  else{
+    h+='<div class="panel" style="padding:2px 14px">'+S.employees.map(e=>{
+      const paid=monthTxns(view.ym).filter(t=>t.kind==='pay'&&t.empId===e.id).reduce((a,t)=>a+pkrOf(t),0);
+      return '<div class="item"><div class="ico">👤</div>'
+        +'<div class="mid"><div class="t1">'+esc(e.name)+'</div><div class="t2">'+ymLabel(view.ym)+': '+fmt(paid)+'</div></div>'
+        +'<button class="duebtn" data-payemp="'+e.id+'">Pay</button> <button class="smallbtn" data-delemp="'+e.id+'">✕</button></div>';
+    }).join('')+'</div>';
+  }
+  h+='<button class="bigbtn ghost mt12" data-act="empadd">+ Add employee</button>';
+  return h;
+}
+
+function setHTML(){
+  const s=S.settings;
+  const rateTs=s.rate.ts?new Date(s.rate.ts).toLocaleString():'never';
+  return '<h2>Income tax on freelance remittances</h2><div class="panel">'
+    +'<div class="setrow"><div><div class="sl">Tax preset</div><div class="sd">Final tax on IT-export proceeds</div></div>'
+    +'<select id="taxpreset"><option value="pseb" '+(s.taxPreset==='pseb'?'selected':'')+'>PSEB registered — 0.25%</option>'
+    +'<option value="nonpseb" '+(s.taxPreset==='nonpseb'?'selected':'')+'>Not registered — 1%</option>'
+    +'<option value="custom" '+(s.taxPreset==='custom'?'selected':'')+'>Custom</option></select></div>'
+    +'<div class="setrow"><div><div class="sl">Tax rate %</div><div class="sd">Applied to gross PKR income</div></div>'
+    +'<input id="taxpct" type="number" inputmode="decimal" step="any" value="'+s.taxPct+'" '+(s.taxPreset!=='custom'?'disabled':'')+'></div>'
+    +'</div>'
+    +'<h2>Exchange rate</h2><div class="panel">'
+    +'<div class="setrow"><div><div class="sl">Live rate</div><div class="sd">updated: '+rateTs+'</div></div><button class="smallbtn" data-act="raterefresh">Refresh</button></div>'
+    +'<div class="setrow"><div><div class="sl">Manual override</div><div class="sd">Leave empty to use live rate</div></div>'
+    +'<input id="manrate" type="number" inputmode="decimal" step="any" placeholder="auto" value="'+(s.manualRate||'')+'"></div>'
+    +'</div>'
+    +'<h2>Backup</h2><div class="panel">'
+    +'<div class="setrow"><div><div class="sl">Export data</div><div class="sd">'+S.txns.length+' entries · saves a JSON file</div></div><button class="smallbtn" data-act="export">Export</button></div>'
+    +'<div class="setrow"><div><div class="sl">Import backup</div><div class="sd">Restores a previous export</div></div><button class="smallbtn" data-act="import">Import</button></div>'
+    +'</div>'
+    +'<input type="file" id="impfile" accept=".json,application/json" style="display:none">'
+    +'<button class="bigbtn danger mt12" data-act="wipe">Erase all data</button>'
+    +'<div class="preview mt12">All data lives on this phone only — nothing is uploaded anywhere. Export a backup now and then (it lands in Files / Downloads) so you can restore if you ever change phones.</div>';
+}
+
+/* ================= sheets ================= */
+const overlay=document.getElementById('overlay');
+const sheet=document.getElementById('sheet');
+function openSheet(html){sheet.innerHTML='<div class="grab"></div>'+html; overlay.classList.add('show');}
+function closeSheet(){overlay.classList.remove('show');}
+overlay.addEventListener('click',e=>{if(e.target===overlay)closeSheet();});
+
+function editTxnSheet(t){
+  const kindName=t.kind==='inc'?'Income':t.kind==='pay'?'Team payment':'Expense';
+  let extra='';
+  if(t.kind==='exp') extra='<div class="frow"><select id="ecat">'+CATS.map(c=>'<option value="'+c.id+'" '+(t.cat===c.id?'selected':'')+'>'+c.i+' '+c.n+'</option>').join('')+'</select></div>';
+  if(t.kind==='pay') extra='<div class="frow"><select id="eemp">'+S.employees.map(e=>'<option value="'+e.id+'" '+(t.empId===e.id?'selected':'')+'>'+esc(e.name)+'</option>').join('')+'</select></div>';
+  openSheet('<h3>Edit '+kindName+'</h3>'
+    +'<div class="amtrow"><input id="eamt" type="number" inputmode="decimal" step="any" value="'+t.amt+'">'
+    +'<select class="curbtn" id="ecur" style="min-width:90px"><option '+(t.cur==='PKR'?'selected':'')+'>PKR</option><option '+(t.cur==='USD'?'selected':'')+'>USD</option></select></div>'
+    +extra
+    +'<div class="frow"><input id="edate" type="date" value="'+t.date+'"><input id="enote" placeholder="Note" value="'+esc(t.note||'')+'"></div>'
+    +(t.cur==='USD'?'<div class="frow"><input id="erate" type="number" inputmode="decimal" step="any" value="'+(t.rate||rate())+'" placeholder="rate"><span style="align-self:center;color:var(--dim);font-size:13px">rate used</span></div>':'')
+    +'<button class="bigbtn" data-act="esave" data-id="'+t.id+'">Save changes</button>'
+    +'<button class="bigbtn danger mt8" data-act="edel" data-id="'+t.id+'">Delete entry</button>');
+}
+
+function editRecSheet(r){
+  const isNew=!r.id;
+  openSheet('<h3>'+(isNew?'New recurring item':'Edit — '+esc(r.name))+'</h3>'
+    +'<div class="frow"><input id="rname" placeholder="Name" value="'+esc(r.name||'')+'"></div>'
+    +'<div class="amtrow"><input id="ramt" type="number" inputmode="decimal" step="any" value="'+(r.amount||'')+'" placeholder="Amount">'
+    +'<select class="curbtn" id="rcur" style="min-width:90px"><option '+(r.cur==='PKR'?'selected':'')+'>PKR</option><option '+(r.cur==='USD'?'selected':'')+'>USD</option></select></div>'
+    +'<div class="frow"><select id="rcat">'+CATS.map(c=>'<option value="'+c.id+'" '+(r.cat===c.id?'selected':'')+'>'+c.i+' '+c.n+'</option>').join('')+'</select>'
+    +'<select id="rper"><option value="monthly" '+(r.period!=='yearly'?'selected':'')+'>Monthly</option><option value="yearly" '+(r.period==='yearly'?'selected':'')+'>Yearly</option></select></div>'
+    +'<div class="frow"><select id="rmonth">'+MONTHS.map((m,i)=>'<option value="'+(i+1)+'" '+((r.month||1)===i+1?'selected':'')+'>'+m+'</option>').join('')+'</select><span style="align-self:center;color:var(--dim);font-size:13px;white-space:nowrap">due month (yearly)</span></div>'
+    +'<button class="bigbtn" data-act="rsave" data-id="'+(r.id||'')+'">Save</button>'
+    +(isNew?'':'<button class="bigbtn danger mt8" data-act="rdel" data-id="'+r.id+'">Delete item</button>'));
+}
+
+function payEmpSheet(e){
+  openSheet('<h3>Pay '+esc(e.name)+'</h3>'
+    +'<div class="amtrow"><input id="pamt" type="number" inputmode="decimal" step="any" placeholder="0">'
+    +'<select class="curbtn" id="pcur" style="min-width:90px"><option>PKR</option><option>USD</option></select></div>'
+    +'<div class="frow"><input id="pdate" type="date" value="'+todayStr()+'"><input id="pnote" placeholder="Job / note"></div>'
+    +'<button class="bigbtn" data-act="psave" data-id="'+e.id+'">Record payment</button>');
+}
+
+function addEmpSheet(){
+  openSheet('<h3>Add employee</h3><div class="frow"><input id="ename" placeholder="Name"></div>'
+    +'<button class="bigbtn" data-act="empsave">Add</button>');
+}
+
+/* ================= actions ================= */
+function shiftMonth(d){
+  let[y,m]=view.ym.split('-').map(Number); m+=d;
+  if(m<1){m=12;y--;} if(m>12){m=1;y++;}
+  view.ym=y+'-'+pad(m); render();
+}
+
+function quickSave(){
+  const amt=parseFloat(document.getElementById('qamt').value);
+  if(!(amt>0)){alert('Enter an amount first'); return;}
+  const date=document.getElementById('qdate').value||todayStr();
+  const note=document.getElementById('qnote').value.trim();
+  const t={id:uid(), kind:view.kind, date, note, amt, cur:view.cur};
+  if(view.cur==='USD') t.rate=rate();
+  if(view.kind==='exp') t.cat=view.cat;
+  if(view.kind==='inc'){t.cur='USD'; t.rate=rate(); t.taxPct=S.settings.taxPct;}
+  if(view.kind==='pay'){
+    if(!view.empId){alert('Pick an employee (or add one in Team tab)'); return;}
+    t.empId=view.empId;
+  }
+  S.txns.push(t); save(); render();
+}
+
+function markRecPaid(id){
+  const r=S.recurring.find(r=>r.id===id); if(!r) return;
+  if(!(r.amount>0)){editRecSheet(r); return;}
+  const t={id:uid(), kind:'exp', date:todayStr(), note:r.name, amt:r.amount, cur:r.cur, cat:r.cat, recId:r.id};
+  if(r.cur==='USD') t.rate=rate();
+  S.txns.push(t); save(); render();
+}
+
+function doExport(){
+  const blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='kharcha-backup-'+todayStr()+'.json';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function updateIncPreview(){
+  const el=document.getElementById('incprev'); if(!el) return;
+  const amt=parseFloat(document.getElementById('qamt').value)||0;
+  const g=amt*rate(), tx=g*S.settings.taxPct/100;
+  el.innerHTML='Gross: <b>'+fmt(g)+'</b> &nbsp;·&nbsp; Tax ('+S.settings.taxPct+'%): <b>'+fmt(tx)+'</b> &nbsp;·&nbsp; Net: <b>'+fmt(g-tx)+'</b>';
+}
+
+/* ================= events ================= */
+document.getElementById('nav').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-tab]'); if(!b) return;
+  view.tab=b.dataset.tab; render();
+});
+
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act],[data-kind],[data-cat],[data-emp],[data-recpay],[data-edit],[data-recedit],[data-payemp],[data-delemp]');
+  if(!el) return;
+  const d=el.dataset;
+  if(d.kind){view.kind=d.kind; render(); return;}
+  if(d.cat){view.cat=d.cat; render(); return;}
+  if(d.emp){view.empId=d.emp; render(); return;}
+  if(d.recpay){e.stopPropagation(); markRecPaid(d.recpay); return;}
+  if(d.edit){const t=S.txns.find(t=>t.id===d.edit); if(t) editTxnSheet(t); return;}
+  if(d.recedit){const r=S.recurring.find(r=>r.id===d.recedit); if(r) editRecSheet(r); return;}
+  if(d.payemp){const emp=S.employees.find(x=>x.id===d.payemp); if(emp) payEmpSheet(emp); return;}
+  if(d.delemp){
+    const emp=S.employees.find(x=>x.id===d.delemp);
+    if(emp&&confirm('Remove '+emp.name+'? Past payments stay in history.')){
+      S.employees=S.employees.filter(x=>x.id!==d.delemp); save(); render();
+    } return;
+  }
+  switch(d.act){
+    case 'mprev': shiftMonth(-1); break;
+    case 'mnext': shiftMonth(1); break;
+    case 'raterefresh': refreshRate(true); break;
+    case 'curflip': view.cur=view.cur==='PKR'?'USD':'PKR'; render(); break;
+    case 'qsave': quickSave(); break;
+    case 'hidehint': S.settings.hideHint=true; save(); render(); break;
+    case 'recadd': editRecSheet({name:'',amount:0,cur:'PKR',cat:'subs',period:'monthly'}); break;
+    case 'empadd': addEmpSheet(); break;
+    case 'export': doExport(); break;
+    case 'import': document.getElementById('impfile').click(); break;
+    case 'wipe':
+      if(confirm('Erase ALL data? This cannot be undone.')&&confirm('Really sure? Export a backup first if in doubt.')){
+        S=seed(); save(); render();
+      } break;
+    case 'esave':{
+      const t=S.txns.find(t=>t.id===d.id); if(!t) break;
+      t.amt=parseFloat(document.getElementById('eamt').value)||t.amt;
+      t.cur=document.getElementById('ecur').value;
+      t.date=document.getElementById('edate').value||t.date;
+      t.note=document.getElementById('enote').value.trim();
+      const er=document.getElementById('erate'); if(er) t.rate=parseFloat(er.value)||t.rate;
+      if(t.cur==='USD'&&!t.rate) t.rate=rate();
+      const ec=document.getElementById('ecat'); if(ec) t.cat=ec.value;
+      const ee=document.getElementById('eemp'); if(ee) t.empId=ee.value;
+      save(); closeSheet(); render(); break;
+    }
+    case 'edel':
+      if(confirm('Delete this entry?')){S.txns=S.txns.filter(t=>t.id!==d.id); save(); closeSheet(); render();}
+      break;
+    case 'rsave':{
+      const name=document.getElementById('rname').value.trim();
+      if(!name){alert('Give it a name'); break;}
+      const obj={
+        name, amount:parseFloat(document.getElementById('ramt').value)||0,
+        cur:document.getElementById('rcur').value, cat:document.getElementById('rcat').value,
+        period:document.getElementById('rper').value, month:+document.getElementById('rmonth').value
+      };
+      if(d.id){Object.assign(S.recurring.find(r=>r.id===d.id),obj);}
+      else{obj.id=uid(); S.recurring.push(obj);}
+      save(); closeSheet(); render(); break;
+    }
+    case 'rdel':
+      if(confirm('Delete this recurring item? Past payments stay in history.')){
+        S.recurring=S.recurring.filter(r=>r.id!==d.id); save(); closeSheet(); render();
+      } break;
+    case 'psave':{
+      const amt=parseFloat(document.getElementById('pamt').value);
+      if(!(amt>0)){alert('Enter an amount'); break;}
+      const t={id:uid(), kind:'pay', empId:d.id, amt,
+        cur:document.getElementById('pcur').value,
+        date:document.getElementById('pdate').value||todayStr(),
+        note:document.getElementById('pnote').value.trim()};
+      if(t.cur==='USD') t.rate=rate();
+      S.txns.push(t); save(); closeSheet(); render(); break;
+    }
+    case 'empsave':{
+      const name=document.getElementById('ename').value.trim();
+      if(!name){alert('Enter a name'); break;}
+      S.employees.push({id:uid(), name}); save(); closeSheet(); render(); break;
+    }
+  }
+});
+
+document.addEventListener('input',e=>{
+  if(e.target.id==='qamt') updateIncPreview();
+  if(e.target.id==='taxpreset'||e.target.id==='taxpct'){
+    const p=document.getElementById('taxpreset').value;
+    S.settings.taxPreset=p;
+    if(p==='pseb') S.settings.taxPct=0.25;
+    else if(p==='nonpseb') S.settings.taxPct=1;
+    else S.settings.taxPct=parseFloat(document.getElementById('taxpct').value)||S.settings.taxPct;
+    save();
+    if(e.target.id==='taxpreset') render();
+  }
+  if(e.target.id==='manrate'){
+    const v=parseFloat(e.target.value);
+    S.settings.manualRate=(v>0)?v:null; save();
+    document.getElementById('ratechip').innerHTML='$1 = <b>Rs '+(Math.round(rate()*100)/100)+'</b> '+(S.settings.manualRate?'✎':'⟳');
+  }
+});
+document.addEventListener('change',e=>{
+  if(e.target.id==='impfile'){
+    const f=e.target.files[0]; if(!f) return;
+    const fr=new FileReader();
+    fr.onload=()=>{
+      try{
+        const j=JSON.parse(fr.result);
+        if(!j||!Array.isArray(j.txns)) throw 0;
+        S=j; save(); render(); alert('Backup restored ✓ ('+j.txns.length+' entries)');
+      }catch(_){alert('That file is not a valid Kharcha backup.');}
+    };
+    fr.readAsText(f); e.target.value='';
+  }
+});
+
+/* ================= boot ================= */
+render();
+refreshRate(false);
+if('serviceWorker' in navigator && location.protocol==='https:'){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "Kharcha — Expense Tracker",
+  "short_name": "Kharcha",
+  "description": "Personal PKR expense & income tracker",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0e1613",
+  "theme_color": "#0e1613",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
