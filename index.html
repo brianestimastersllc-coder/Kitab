@@ -78,6 +78,7 @@ input[type=date]{-webkit-appearance:none; appearance:none;}
   font-weight:800; font-size:13px; cursor:pointer; flex-shrink:0;}
 .pill{font-size:11px; background:var(--card2); border-radius:999px; padding:3px 9px; color:var(--dim); font-weight:700;}
 .pill.paid{color:var(--green);}
+.pill.over{color:var(--red);}
 .bar{height:7px; background:var(--card2); border-radius:99px; overflow:hidden; margin-top:6px;}
 .bar i{display:block; height:100%; background:var(--accent); border-radius:99px;}
 .empty{text-align:center; color:var(--dim); padding:26px 10px; font-size:14px;}
@@ -124,6 +125,7 @@ nav button.on{color:var(--accent);}
   <button data-tab="hist"><span class="nico">🧾</span>History</button>
   <button data-tab="rec"><span class="nico">🔁</span>Recurring</button>
   <button data-tab="team"><span class="nico">👥</span>Team</button>
+  <button data-tab="loan"><span class="nico">🤝</span>Loans</button>
   <button data-tab="set"><span class="nico">⚙️</span>Settings</button>
 </nav>
 <div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
@@ -155,6 +157,7 @@ function seed(){
     v:1,
     settings:{taxPreset:'pseb', taxPct:0.25, manualRate:null, rate:{v:283, ts:0}, hideHint:false},
     employees:[],
+    loans:[],
     recurring:[
       {id:uid(), name:'Room Rent',        cat:'rent',    amount:0,     cur:'PKR', period:'monthly'},
       {id:uid(), name:'Meal Charges',     cat:'meals',   amount:0,     cur:'PKR', period:'monthly'},
@@ -170,7 +173,7 @@ function seed(){
   };
 }
 function load(){
-  try{const j=JSON.parse(localStorage.getItem(KEY)); if(j&&j.txns) return j;}catch(e){}
+  try{const j=JSON.parse(localStorage.getItem(KEY)); if(j&&j.txns){if(!j.loans)j.loans=[]; return j;}}catch(e){}
   return seed();
 }
 let S=load();
@@ -219,6 +222,7 @@ function render(){
   else if(view.tab==='hist') m.innerHTML=histHTML();
   else if(view.tab==='rec') m.innerHTML=recHTML();
   else if(view.tab==='team') m.innerHTML=teamHTML();
+  else if(view.tab==='loan') m.innerHTML=loansHTML();
   else m.innerHTML=setHTML();
 }
 
@@ -282,6 +286,19 @@ function homeHTML(){
       return '<div class="item" data-recpay="'+r.id+'"><div class="ico">'+c.i+'</div>'
         +'<div class="mid"><div class="t1">'+esc(r.name)+'</div><div class="t2">'+amtTxt+(r.period==='yearly'?' · yearly':'')+'</div></div>'
         +'<button class="duebtn" data-recpay="'+r.id+'">Paid ✓</button></div>';
+    }).join('')+'</div>';
+  }
+
+  /* loan deadlines */
+  const lsoon=S.loans.filter(l=>!l.settled&&l.due&&loanRemaining(l)>0&&l.due<=addDaysStr(7))
+    .sort((a,b)=>a.due.localeCompare(b.due));
+  if(lsoon.length){
+    h+='<h2>Loan deadlines</h2><div class="panel" style="padding:2px 14px">'+lsoon.map(l=>{
+      const over=l.due<todayStr(), rem=loanRemaining(l);
+      return '<div class="item" data-loan="'+l.id+'"><div class="ico">'+(l.dir==='owe'?'🔻':'🔺')+'</div>'
+        +'<div class="mid"><div class="t1">'+esc(l.person)+'</div><div class="t2">'
+        +(l.cur==='USD'?fmtUSD(rem):fmt(rem))+' left · due '+l.due+'</div></div>'
+        +'<span class="pill '+(over?'over':'')+'">'+(over?'overdue':'due soon')+'</span></div>';
     }).join('')+'</div>';
   }
 
@@ -382,6 +399,78 @@ function teamHTML(){
   }
   h+='<button class="bigbtn ghost mt12" data-act="empadd">+ Add employee</button>';
   return h;
+}
+
+/* ================= loans ================= */
+const addDaysStr=n=>{const d=new Date(Date.now()+n*86400000);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());};
+const loanRemaining=l=>l.amt-(l.payments||[]).reduce((a,p)=>a+p.amt,0);
+const loanPKR=(v,l)=>l.cur==='USD'?v*rate():v;
+const loanAmtTxt=(v,l)=>l.cur==='USD'?fmtUSD(v)+' ≈ '+fmt(v*rate()):fmt(v);
+
+function loanRow(l){
+  const rem=loanRemaining(l);
+  const paidPct=l.amt>0?Math.max(0,Math.min(100,Math.round((l.amt-rem)/l.amt*100))):0;
+  const over=!l.settled&&l.due&&l.due<todayStr()&&rem>0;
+  let pill='';
+  if(l.settled) pill='<span class="pill paid">settled ✓</span>';
+  else if(over) pill='<span class="pill over">overdue</span>';
+  return '<div class="item" data-loan="'+l.id+'"><div class="ico">'+(l.dir==='owe'?'🔻':'🔺')+'</div>'
+    +'<div class="mid"><div class="t1">'+esc(l.person)+'</div>'
+    +'<div class="t2">'+loanAmtTxt(rem,l)+' left of '+(l.cur==='USD'?fmtUSD(l.amt):fmt(l.amt))
+    +(l.due?' · due '+l.due:'')+'</div>'
+    +'<div class="bar"><i style="width:'+paidPct+'%"></i></div></div>'+pill+'</div>';
+}
+
+function loansHTML(){
+  const act=S.loans.filter(l=>!l.settled);
+  const owe=act.filter(l=>l.dir==='owe'), lent=act.filter(l=>l.dir==='lent');
+  const sumP=ls=>ls.reduce((a,l)=>a+loanPKR(loanRemaining(l),l),0);
+  const so=sumP(owe), sl=sumP(lent);
+  let h='<div class="cards">'
+    +'<div class="card"><div class="lbl">You owe</div><div class="val neg">'+fmt(so)+'</div><div class="sub">'+owe.length+' active</div></div>'
+    +'<div class="card"><div class="lbl">Owed to you</div><div class="val pos">'+fmt(sl)+'</div><div class="sub">'+lent.length+' active</div></div>'
+    +'<div class="card"><div class="lbl">Net</div><div class="val '+(sl-so>=0?'pos':'neg')+'">'+fmt(sl-so)+'</div><div class="sub">position</div></div></div>';
+  if(!S.loans.length) h+='<div class="empty">No loans yet.<br>Track anything you owe or lent below 👇</div>';
+  if(owe.length) h+='<h2>🔻 I owe</h2><div class="panel" style="padding:2px 14px">'+owe.map(loanRow).join('')+'</div>';
+  if(lent.length) h+='<h2>🔺 Owed to me</h2><div class="panel" style="padding:2px 14px">'+lent.map(loanRow).join('')+'</div>';
+  const done=S.loans.filter(l=>l.settled);
+  if(done.length) h+='<h2>✓ Settled</h2><div class="panel" style="padding:2px 14px">'+done.map(loanRow).join('')+'</div>';
+  h+='<button class="bigbtn mt12" data-act="loanadd">+ Add loan</button>';
+  return h;
+}
+
+function loanEditSheet(l){
+  const isNew=!l.id;
+  openSheet('<h3>'+(isNew?'Add loan':'Edit loan')+'</h3>'
+    +'<div class="frow"><select id="ldir"><option value="owe" '+(l.dir==='owe'?'selected':'')+'>I borrowed — I owe them</option><option value="lent" '+(l.dir==='lent'?'selected':'')+'>I lent — they owe me</option></select></div>'
+    +'<div class="frow"><input id="lperson" placeholder="Lender / borrower name" value="'+esc(l.person||'')+'"></div>'
+    +'<div class="amtrow"><input id="lamt" type="number" inputmode="decimal" step="any" placeholder="Total amount" value="'+(l.amt||'')+'">'
+    +'<select class="curbtn" id="lcur" style="min-width:90px"><option '+(l.cur!=='USD'?'selected':'')+'>PKR</option><option '+(l.cur==='USD'?'selected':'')+'>USD</option></select></div>'
+    +'<div class="frow"><input id="lstart" type="date" value="'+(l.start||todayStr())+'"><input id="ldue" type="date" value="'+(l.due||'')+'"></div>'
+    +'<div class="preview">Left date: when the loan was taken · Right date: agreed completion date</div>'
+    +'<div class="frow"><input id="lnote" placeholder="Terms / note (optional)" value="'+esc(l.note||'')+'"></div>'
+    +'<button class="bigbtn" data-act="lsave" data-id="'+(l.id||'')+'">Save</button>');
+}
+
+function loanDetailSheet(l){
+  const rem=loanRemaining(l);
+  const pays=(l.payments||[]).slice().sort((a,b)=>b.date.localeCompare(a.date)).map(p=>
+    '<div class="item"><div class="ico">💸</div><div class="mid"><div class="t1">'+(l.cur==='USD'?fmtUSD(p.amt):fmt(p.amt))+'</div>'
+    +'<div class="t2">'+p.date+'</div></div>'
+    +'<button class="smallbtn" data-act="lpaydel" data-id="'+l.id+'" data-pid="'+p.id+'">✕</button></div>').join('')
+    ||'<div class="empty" style="padding:10px">No payments recorded yet.</div>';
+  openSheet('<h3>'+(l.dir==='owe'?'🔻 You owe — ':'🔺 Owes you — ')+esc(l.person)+'</h3>'
+    +'<div class="preview">Remaining: <b>'+loanAmtTxt(rem,l)+'</b> of '+(l.cur==='USD'?fmtUSD(l.amt):fmt(l.amt))
+    +(l.due?' &nbsp;·&nbsp; due <b>'+l.due+'</b>':'')
+    +(l.start?' &nbsp;·&nbsp; taken '+l.start:'')
+    +(l.note?'<br>'+esc(l.note):'')+'</div>'
+    +'<div class="amtrow"><input id="lpamt" type="number" inputmode="decimal" step="any" placeholder="Payment in '+l.cur+'">'
+    +'<input id="lpdate" type="date" value="'+todayStr()+'" style="flex:0 0 150px;font-size:15px;font-weight:600"></div>'
+    +'<button class="bigbtn" data-act="lpayadd" data-id="'+l.id+'">Record payment</button>'
+    +'<h2 style="margin-top:18px">Payment history</h2><div style="margin:0 -4px">'+pays+'</div>'
+    +'<button class="bigbtn ghost mt12" data-act="loaneditopen" data-id="'+l.id+'">Edit loan details</button>'
+    +'<button class="bigbtn ghost mt8" data-act="lsettle" data-id="'+l.id+'">'+(l.settled?'Reopen loan':'Mark fully settled ✓')+'</button>'
+    +'<button class="bigbtn danger mt8" data-act="ldel" data-id="'+l.id+'">Delete loan</button>');
 }
 
 function setHTML(){
@@ -510,13 +599,14 @@ document.getElementById('nav').addEventListener('click',e=>{
 });
 
 document.addEventListener('click',e=>{
-  const el=e.target.closest('[data-act],[data-kind],[data-cat],[data-emp],[data-recpay],[data-edit],[data-recedit],[data-payemp],[data-delemp]');
+  const el=e.target.closest('[data-act],[data-kind],[data-cat],[data-emp],[data-recpay],[data-edit],[data-recedit],[data-payemp],[data-delemp],[data-loan]');
   if(!el) return;
   const d=el.dataset;
   if(d.kind){view.kind=d.kind; render(); return;}
   if(d.cat){view.cat=d.cat; render(); return;}
   if(d.emp){view.empId=d.emp; render(); return;}
   if(d.recpay){e.stopPropagation(); markRecPaid(d.recpay); return;}
+  if(d.loan){const l=S.loans.find(x=>x.id===d.loan); if(l) loanDetailSheet(l); return;}
   if(d.edit){const t=S.txns.find(t=>t.id===d.edit); if(t) editTxnSheet(t); return;}
   if(d.recedit){const r=S.recurring.find(r=>r.id===d.recedit); if(r) editRecSheet(r); return;}
   if(d.payemp){const emp=S.employees.find(x=>x.id===d.payemp); if(emp) payEmpSheet(emp); return;}
@@ -582,6 +672,45 @@ document.addEventListener('click',e=>{
       if(t.cur==='USD') t.rate=rate();
       S.txns.push(t); save(); closeSheet(); render(); break;
     }
+    case 'loanadd': loanEditSheet({dir:'owe',cur:'PKR'}); break;
+    case 'loaneditopen':{const l=S.loans.find(x=>x.id===d.id); if(l) loanEditSheet(l); break;}
+    case 'lsave':{
+      const person=document.getElementById('lperson').value.trim();
+      const amt=parseFloat(document.getElementById('lamt').value);
+      if(!person){alert('Enter the lender / borrower name'); break;}
+      if(!(amt>0)){alert('Enter the loan amount'); break;}
+      const obj={dir:document.getElementById('ldir').value, person, amt,
+        cur:document.getElementById('lcur').value,
+        start:document.getElementById('lstart').value||todayStr(),
+        due:document.getElementById('ldue').value||'',
+        note:document.getElementById('lnote').value.trim()};
+      if(d.id){Object.assign(S.loans.find(x=>x.id===d.id),obj);}
+      else{obj.id=uid(); obj.payments=[]; obj.settled=false; S.loans.push(obj);}
+      view.tab='loan'; save(); closeSheet(); render(); break;
+    }
+    case 'lpayadd':{
+      const l=S.loans.find(x=>x.id===d.id); if(!l) break;
+      const amt=parseFloat(document.getElementById('lpamt').value);
+      if(!(amt>0)){alert('Enter a payment amount'); break;}
+      l.payments=l.payments||[];
+      l.payments.push({id:uid(), amt, date:document.getElementById('lpdate').value||todayStr()});
+      if(loanRemaining(l)<=0) l.settled=true;
+      save(); render(); loanDetailSheet(l); break;
+    }
+    case 'lpaydel':{
+      const l=S.loans.find(x=>x.id===d.id); if(!l) break;
+      l.payments=(l.payments||[]).filter(p=>p.id!==d.pid);
+      if(loanRemaining(l)>0) l.settled=false;
+      save(); render(); loanDetailSheet(l); break;
+    }
+    case 'lsettle':{
+      const l=S.loans.find(x=>x.id===d.id); if(!l) break;
+      l.settled=!l.settled; save(); render(); loanDetailSheet(l); break;
+    }
+    case 'ldel':
+      if(confirm('Delete this loan and its payment history?')){
+        S.loans=S.loans.filter(x=>x.id!==d.id); save(); closeSheet(); render();
+      } break;
     case 'empsave':{
       const name=document.getElementById('ename').value.trim();
       if(!name){alert('Enter a name'); break;}
