@@ -142,6 +142,7 @@ nav button.on{color:var(--accent);}
 'use strict';
 /* ================= data ================= */
 const KEY='kharcha-data-v1';
+const APPVER='v4';
 const CATS=[
   {id:'fuel',    n:'Fuel',            i:'⛽'},
   {id:'grocery', n:'Groceries',       i:'🛒'},
@@ -647,7 +648,11 @@ function setHTML(){
     +'</div>'
     +'<input type="file" id="impfile" accept=".json,application/json" style="display:none">'
     +'<button class="bigbtn danger mt12" data-act="wipe">Erase all data</button>'
-    +'<div class="preview mt12">All data lives on this phone only — nothing is uploaded anywhere. Export a backup now and then (it lands in Files / Downloads) so you can restore if you ever change phones.</div>';
+    +'<div class="preview mt12">All data lives on this phone only — nothing is uploaded anywhere. Export a backup now and then (it lands in Files / Downloads) so you can restore if you ever change phones.</div>'
+    +'<h2>About</h2><div class="panel"><div class="setrow"><div><div class="sl">Kharcha '+APPVER+'</div>'
+    +'<div class="sd" id="netbadge">'+(navigator.onLine?'Online — live rate available':'Offline — using saved rate')+'</div></div>'
+    +'<span class="pill '+(('serviceWorker' in navigator)?'paid':'')+'">'+(('serviceWorker' in navigator)?'works offline ✓':'no offline')+'</span></div>'
+    +'<div class="setrow"><div><div class="sl">Runs on your phone</div><div class="sd">Opens with no internet once loaded. Internet is only used to refresh the $ rate.</div></div></div></div>';
 }
 
 /* ================= sheets ================= */
@@ -1024,9 +1029,14 @@ if(S.settings.pinHash){
 }
 render();
 refreshRate(false);
-if('serviceWorker' in navigator && location.protocol==='https:'){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
+// Register the offline engine on HTTPS or localhost (both are "secure contexts").
+if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
+  navigator.serviceWorker.register('sw.js')
+    .then(()=>{window.__offlineReady=true;})
+    .catch(()=>{});
 }
+window.addEventListener('online', ()=>{const b=document.getElementById('netbadge'); if(b) render();});
+window.addEventListener('offline', ()=>{const b=document.getElementById('netbadge'); if(b) render();});
 </script>
 </body>
 </html>
