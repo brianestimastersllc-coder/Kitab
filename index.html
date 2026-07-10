@@ -127,6 +127,7 @@ nav button.on{color:var(--accent);}
   <button data-tab="team"><span class="nico">👥</span>Team</button>
   <button data-tab="loan"><span class="nico">🤝</span>Loans</button>
   <button data-tab="wealth"><span class="nico">💰</span>Wealth</button>
+  <button data-tab="trends"><span class="nico">📈</span>Trends</button>
   <button data-tab="set"><span class="nico">⚙️</span>Settings</button>
 </nav>
 <div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
@@ -142,7 +143,7 @@ nav button.on{color:var(--accent);}
 'use strict';
 /* ================= data ================= */
 const KEY='kharcha-data-v1';
-const APPVER='v4';
+const APPVER='v5';
 const CATS=[
   {id:'fuel',    n:'Fuel',            i:'⛽'},
   {id:'grocery', n:'Groceries',       i:'🛒'},
@@ -234,7 +235,7 @@ const fyOf=d=>{const y=+d.slice(0,4),m=+d.slice(5,7);return m>=7?y:y-1;};// PK f
 const esc=s=>String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 /* ================= view state ================= */
-let view={tab:'home', ym:curYM(), kind:'exp', cur:'PKR', cat:'fuel', empId:null, unmask:false, xfrom:'', xto:''};
+let view={tab:'home', ym:curYM(), kind:'exp', cur:'PKR', cat:'fuel', empId:null, unmask:false, xfrom:'', xto:'', trendSel:''};
 
 /* ================= accounts ================= */
 const accById=id=>S.accounts.find(a=>a.id===id);
@@ -277,6 +278,7 @@ function render(){
   else if(view.tab==='team') m.innerHTML=teamHTML();
   else if(view.tab==='loan') m.innerHTML=loansHTML();
   else if(view.tab==='wealth') m.innerHTML=wealthHTML();
+  else if(view.tab==='trends') m.innerHTML=trendsHTML();
   else m.innerHTML=setHTML();
 }
 
@@ -620,6 +622,102 @@ async function sha(s){
   return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
 
+/* ================= trends ================= */
+const fmtK=n=>{n=Math.round(n); const a=Math.abs(n), sg=n<0?'-':'';
+  if(a>=1e7) return sg+'Rs '+(a/1e7).toFixed(a>=1e8?0:1).replace(/\.0$/,'')+'cr';
+  if(a>=1e5) return sg+'Rs '+(a/1e5).toFixed(a>=1e6?0:1).replace(/\.0$/,'')+'L';
+  if(a>=1e3) return sg+'Rs '+Math.round(a/1e3)+'k';
+  return sg+'Rs '+a;};
+function lastMonths(n){
+  const base=new Date(curYM()+'-01T00:00:00'), out=[];
+  for(let i=n-1;i>=0;i--){const d=new Date(base.getFullYear(),base.getMonth()-i,1);
+    out.push(d.getFullYear()+'-'+pad(d.getMonth()+1));}
+  return out;
+}
+function currentNetWorth(){
+  const total=S.accounts.reduce((a,x)=>a+accPKR(x),0);
+  const act=S.loans.filter(l=>!l.settled);
+  const owed=act.filter(l=>l.dir==='lent').reduce((a,l)=>a+loanPKR(loanRemaining(l),l),0);
+  const owe=act.filter(l=>l.dir==='owe').reduce((a,l)=>a+loanPKR(loanRemaining(l),l),0);
+  return total+owed-owe;
+}
+function inOutChart(data, sel){
+  const W=340,H=210,base=104,maxBar=76,pad=10;
+  const max=Math.max(1,...data.flatMap(d=>[d.inc,d.out]));
+  const n=data.length, gw=(W-2*pad)/n;
+  let bars='',labels='',taps='';
+  data.forEach((d,i)=>{
+    const cx=pad+gw*i+gw/2, bw=Math.min(24,gw*0.5);
+    const ih=d.inc/max*maxBar, oh=d.out/max*maxBar;
+    const on=sel===d.ym, op=on?1:.4;
+    if(ih>0.5) bars+='<rect x="'+(cx-bw/2)+'" y="'+(base-2-ih)+'" width="'+bw+'" height="'+ih+'" rx="4" fill="var(--green)" opacity="'+op+'"/>';
+    if(oh>0.5) bars+='<rect x="'+(cx-bw/2)+'" y="'+(base+2)+'" width="'+bw+'" height="'+oh+'" rx="4" fill="var(--red)" opacity="'+op+'"/>';
+    const mn=MONTHS[+d.ym.slice(5,7)-1].slice(0,3);
+    labels+='<text x="'+cx+'" y="'+(H-6)+'" text-anchor="middle" font-size="11" font-weight="700" fill="'+(on?'var(--txt)':'var(--dim)')+'">'+mn+'</text>';
+    taps+='<rect x="'+(pad+gw*i)+'" y="0" width="'+gw+'" height="'+(H-16)+'" fill="transparent" data-tsel="'+d.ym+'"/>';
+  });
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block">'
+    +'<line x1="'+pad+'" y1="'+base+'" x2="'+(W-pad)+'" y2="'+base+'" stroke="var(--line)" stroke-width="1"/>'
+    +bars+labels+taps+'</svg>';
+}
+function nwChart(points, mask){
+  const W=340,H=150,pad=12,top=16,bot=H-22,n=points.length;
+  const vals=points.map(p=>p.val), mn=Math.min(...vals), mx=Math.max(...vals), span=(mx-mn)||1;
+  const sx=(W-2*pad)/(n-1);
+  const xy=points.map((p,i)=>[pad+sx*i, bot-(p.val-mn)/span*(bot-top)]);
+  const line=xy.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const area='M'+xy[0][0]+' '+bot+' '+xy.map(p=>'L'+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ')+' L'+xy[n-1][0]+' '+bot+' Z';
+  let dots='',labs='';
+  xy.forEach((p,i)=>{
+    dots+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="3" fill="var(--accent)"/>';
+    labs+='<text x="'+p[0].toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle" font-size="10" font-weight="700" fill="var(--dim)">'+MONTHS[+points[i].ym.slice(5,7)-1].slice(0,3)+'</text>';
+  });
+  const end=mask?'':'<text x="'+xy[n-1][0].toFixed(1)+'" y="'+Math.max(11,xy[n-1][1]-7).toFixed(1)+'" text-anchor="end" font-size="11" font-weight="800" fill="var(--txt)">'+fmtK(points[n-1].val)+'</text>';
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block">'
+    +'<path d="'+area+'" fill="var(--accent)" opacity="0.12"/>'
+    +'<path d="'+line+'" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+    +dots+labs+end+'</svg>';
+}
+function trendsHTML(){
+  const months=lastMonths(6);
+  const data=months.map(ym=>{const s=sums(ym); const out=s.exp+s.pay; return {ym, inc:s.inc, out, saved:s.inc-out};});
+  const tEarn=data.reduce((a,d)=>a+d.inc,0), tSpend=data.reduce((a,d)=>a+d.out,0), tSave=tEarn-tSpend;
+  let h='<div class="hrow" style="margin-bottom:4px"><h2 style="margin:6px 0">Last 6 months</h2>'
+    +'<button class="smallbtn" data-act="eye">'+(view.unmask?'🙈 Hide':'👁 Show')+'</button></div>'
+    +'<div class="cards">'
+    +'<div class="card"><div class="lbl">Earned</div><div class="val pos">'+fmt(tEarn)+'</div></div>'
+    +'<div class="card"><div class="lbl">Spent</div><div class="val neg">'+fmt(tSpend)+'</div></div>'
+    +'<div class="card"><div class="lbl">Saved</div><div class="val '+(tSave>=0?'pos':'neg')+'">'+fmt(tSave)+'</div></div></div>';
+  if(!data.some(d=>d.inc>0||d.out>0))
+    return h+'<div class="empty">Once you\'ve logged some income and expenses, your monthly trends will appear here 📈</div>';
+  const sel=(view.trendSel&&data.some(d=>d.ym===view.trendSel))?view.trendSel:data[data.length-1].ym;
+  const sd=data.find(d=>d.ym===sel);
+  h+='<h2>Money in vs out</h2><div class="panel">'
+    +'<div style="display:flex;gap:14px;font-size:12px;font-weight:700;color:var(--dim);margin-bottom:8px">'
+    +'<span><span style="color:var(--green)">▲</span> Earned</span>'
+    +'<span><span style="color:var(--red)">▼</span> Spent</span>'
+    +'<span style="margin-left:auto">tap a month ↓</span></div>'
+    +inOutChart(data,sel)
+    +'<div class="preview" style="margin:10px 0 0"><b>'+ymLabel(sel)+'</b><br>Earned '+fmt(sd.inc)+' · Spent '+fmt(sd.out)+' · <b class="'+(sd.saved>=0?'pos':'neg')+'">'+(sd.saved>=0?'Saved ':'Over by ')+fmt(Math.abs(sd.saved))+'</b></div>'
+    +'</div>';
+  const nwPts=[];
+  months.forEach(ym=>{
+    if(ym===curYM()) nwPts.push({ym, val:currentNetWorth()});
+    else{const s=S.snapshots.find(x=>x.ym===ym); if(s) nwPts.push({ym, val:s.total});}
+  });
+  h+='<h2>Net worth</h2><div class="panel">';
+  if(nwPts.length<2)
+    h+='<div class="empty" style="padding:16px">Needs two months to draw a line. Your net worth is being recorded each month — check back and it\'ll grow into a trend.</div>';
+  else{
+    h+=nwChart(nwPts, !view.unmask);
+    if(!view.unmask) h+='<div class="preview" style="margin:8px 0 0">Amounts hidden — tap 👁 Show above to reveal.</div>';
+    else{const chg=nwPts[nwPts.length-1].val-nwPts[0].val;
+      h+='<div class="preview" style="margin:8px 0 0">Change over period: <b class="'+(chg>=0?'pos':'neg')+'">'+(chg>=0?'+':'−')+fmt(Math.abs(chg))+'</b></div>';}
+  }
+  h+='</div><div class="preview mt12">These update automatically as you add entries. Visit the Wealth tab now and then so each month\'s net worth gets recorded for this chart.</div>';
+  return h;
+}
+
 function setHTML(){
   const s=S.settings;
   const rateTs=s.rate.ts?new Date(s.rate.ts).toLocaleString():'never';
@@ -807,7 +905,7 @@ document.getElementById('nav').addEventListener('click',e=>{
 });
 
 document.addEventListener('click',e=>{
-  const el=e.target.closest('[data-act],[data-kind],[data-cat],[data-emp],[data-recpay],[data-edit],[data-recedit],[data-payemp],[data-delemp],[data-loan],[data-acct]');
+  const el=e.target.closest('[data-act],[data-kind],[data-cat],[data-emp],[data-recpay],[data-edit],[data-recedit],[data-payemp],[data-delemp],[data-loan],[data-acct],[data-tsel]');
   if(!el) return;
   const d=el.dataset;
   if(d.kind){view.kind=d.kind; render(); return;}
@@ -816,6 +914,7 @@ document.addEventListener('click',e=>{
   if(d.recpay){e.stopPropagation(); markRecPaid(d.recpay); return;}
   if(d.loan){const l=S.loans.find(x=>x.id===d.loan); if(l) loanDetailSheet(l); return;}
   if(d.acct){const a=accById(d.acct); if(a) acctSheet(a); return;}
+  if(d.tsel){view.trendSel=d.tsel; render(); return;}
   if(d.edit){const t=S.txns.find(t=>t.id===d.edit); if(t) editTxnSheet(t); return;}
   if(d.recedit){const r=S.recurring.find(r=>r.id===d.recedit); if(r) editRecSheet(r); return;}
   if(d.payemp){const emp=S.employees.find(x=>x.id===d.payemp); if(emp) payEmpSheet(emp); return;}
