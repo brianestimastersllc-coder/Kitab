@@ -105,6 +105,14 @@ nav button.on{color:var(--accent);}
 .hint{background:linear-gradient(135deg,#123a2c,#0e2b21); border:1px solid #1d5c44; border-radius:16px;
   padding:14px; font-size:14px; line-height:1.6; margin-bottom:14px; position:relative;}
 .hint .x{position:absolute; top:8px; right:12px; background:none; border:none; color:var(--dim); font-size:18px; cursor:pointer;}
+.alert{background:linear-gradient(135deg,#3a1d1d,#2a1414); border:1px solid #5a2a2a; border-radius:16px;
+  padding:12px 14px; font-size:14px; line-height:1.6; margin-bottom:14px; color:#ffd9d9;}
+.toast{position:fixed; left:16px; right:16px; bottom:calc(84px + env(safe-area-inset-bottom)); z-index:60;
+  max-width:528px; margin:0 auto; background:var(--card2); border:1px solid var(--line); color:var(--txt);
+  border-radius:14px; padding:12px 14px; font-size:14px; font-weight:600; text-align:center;
+  opacity:0; transform:translateY(8px); transition:opacity .25s, transform .25s; pointer-events:none;}
+.toast.show{opacity:1; transform:none;}
+.toast.danger{background:#3a1d1d; border-color:#5a2a2a; color:#ffd9d9;}
 .mt8{margin-top:8px;} .mt12{margin-top:12px;}
 </style>
 </head>
@@ -143,7 +151,7 @@ nav button.on{color:var(--accent);}
 'use strict';
 /* ================= data ================= */
 const KEY='kharcha-data-v1';
-const APPVER='v5';
+const APPVER='v6';
 const CATS=[
   {id:'fuel',    n:'Fuel',            i:'⛽'},
   {id:'grocery', n:'Groceries',       i:'🛒'},
@@ -167,11 +175,12 @@ function seedAccounts(){
   return [
     mk('UBL','PKR','bank'), mk('NBP','PKR','bank'),
     mk('JazzCash','PKR','wallet'), mk('EasyPaisa','PKR','wallet'),
-    mk('Pay','USD','intl'), mk('Pay B','USD','intl'), mk('Pay 2','USD','intl'), mk('Wise','USD','intl'),
+    mk('PayPal','USD','intl'), mk('Payoneer','USD','intl'), mk('Wise','USD','intl'),
     mk('Fiverr','USD','platform'), mk('Upwork','USD','platform'),
     mk('Cash','PKR','cash')
   ];
 }
+function seedBudgets(){ return {total:0, cats:{}}; }
 function seed(){
   return {
     v:1,
@@ -180,6 +189,7 @@ function seed(){
     loans:[],
     accounts:seedAccounts(),
     snapshots:[],
+    budgets:seedBudgets(),
     recurring:[
       {id:uid(), name:'Room Rent',        cat:'rent',    amount:0,     cur:'PKR', period:'monthly'},
       {id:uid(), name:'Meal Charges',     cat:'meals',   amount:0,     cur:'PKR', period:'monthly'},
@@ -199,6 +209,17 @@ function load(){
     if(!j.loans)j.loans=[];
     if(!j.accounts)j.accounts=seedAccounts();
     if(!j.snapshots)j.snapshots=[];
+    if(!j.budgets)j.budgets=seedBudgets();
+    // One-time: the first seed used placeholder names for the $ accounts.
+    // Only renames if the placeholder is untouched and the real name isn't taken.
+    if(!j.settings.mig1){
+      const taken=n=>j.accounts.some(a=>(a.name||'').toLowerCase()===n.toLowerCase());
+      [['Pay','PayPal'],['Pay B','Payoneer']].forEach(([from,to])=>{
+        const a=j.accounts.find(x=>x.name===from);
+        if(a&&!taken(to)) a.name=to;
+      });
+      j.settings.mig1=true;
+    }
     return j;
   }}catch(e){}
   return seed();
@@ -261,6 +282,8 @@ function accBalance(a){
   return b;
 }
 const accPKR=a=>a.cur==='USD'?accBalance(a)*rate():accBalance(a);
+// Where freelance $ can land: PK banks, international ($ services) and platforms.
+const canDeposit=a=>a.kind==='bank'||a.kind==='intl'||a.kind==='platform';
 const acctOpts=(sel,filter)=>S.accounts.filter(filter||(()=>true))
   .map(a=>'<option value="'+a.id+'" '+(sel===a.id?'selected':'')+'>'+kindIcon(a.kind)+' '+esc(a.name)+' ('+a.cur+')</option>').join('');
 
@@ -308,6 +331,12 @@ function homeHTML(){
     +'<div class="card"><div class="lbl">Balance</div><div class="val '+(bal>=0?'pos':'neg')+'">'+fmt(bal)+'</div><div class="sub">FY tax: '+fmt(fyTax())+'</div></div>'
     +'</div>';
 
+  const over=overList(view.ym);
+  if(over.length){
+    h+='<div class="alert">⚠️ <b>Over budget this month</b><br>'
+      +over.map(o=>esc(o.name)+' by <b>'+fmt(o.by)+'</b>').join(' · ')+'</div>';
+  }
+
   /* quick add */
   const srcSel='<div class="frow"><select id="qsrc"><option value="">💳 Paid from — no account</option>'+acctOpts(S.settings.lastSrc)+'</select></div>';
   h+='<h2>Quick add</h2><div class="panel">'
@@ -334,9 +363,17 @@ function homeHTML(){
     h+='<div class="chips">'+CATS.map(c=>'<span class="chip '+(view.cat===c.id?'on':'')+'" data-cat="'+c.id+'">'+c.i+' '+c.n+'</span>').join('')+'</div>'+srcSel;
   }
   if(view.kind==='inc'){
-    h+='<div class="frow"><select id="qdst"><option value="">🏦 Deposit to — none</option>'+acctOpts('',a=>a.kind==='bank')+'</select>'
-      +'<input id="qrate" type="number" inputmode="decimal" step="any" value="'+(Math.round(rate()*100)/100)+'" style="flex:0 0 104px" title="your $ rate"></div>'
-      +'<div class="preview" id="incprev">Type an amount. The rate box ↑ is <b>your</b> $ rate — edit it if your bank pays differently.</div>';
+    const dsel=S.settings.lastDst||'';
+    const da=accById(dsel);
+    const taxDef=(da&&da.kind!=='bank')?0:S.settings.taxPct;
+    h+='<div class="frow"><select id="qdst"><option value="">💵 Landed in — no account</option>'+acctOpts(dsel,canDeposit)+'</select></div>'
+      +'<div class="frow">'
+      +'<div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--dim);font-weight:700;margin-bottom:4px">YOUR $ RATE</div>'
+      +'<input id="qrate" type="number" inputmode="decimal" step="any" value="'+(Math.round(rate()*100)/100)+'" style="width:100%"></div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--dim);font-weight:700;margin-bottom:4px">TAX %</div>'
+      +'<input id="qtax" type="number" inputmode="decimal" step="any" value="'+taxDef+'" style="width:100%"></div>'
+      +'</div>'
+      +'<div class="preview" id="incprev">Type an amount. Both boxes are editable — tax auto-drops to 0 when the $ lands in a foreign account (PK tax applies later, when it reaches your bank).</div>';
   }
   if(view.kind==='pay'){
     if(S.employees.length===0){
@@ -371,6 +408,21 @@ function homeHTML(){
         +(l.cur==='USD'?fmtUSD(rem):fmt(rem))+' left · due '+l.due+'</div></div>'
         +'<span class="pill '+(over?'over':'')+'">'+(over?'overdue':'due soon')+'</span></div>';
     }).join('')+'</div>';
+  }
+
+  /* budget */
+  const brows=budgetRows(view.ym);
+  if(brows.length||S.budgets.total>0){
+    h+='<div class="hrow"><h2>Budget — '+MONTHS[+view.ym.slice(5,7)-1]+'</h2>'
+      +'<button class="smallbtn" data-act="budgetedit">Edit</button></div><div class="panel">';
+    if(S.budgets.total>0){
+      const s=sums(view.ym);
+      h+=budgetBar({name:'Total spending', icon:'📊', spent:s.exp+s.pay, budget:S.budgets.total}, brows.length>0);
+    }
+    brows.forEach(r=>{h+=budgetBar({name:r.cat.n, icon:r.cat.i, spent:r.spent, budget:r.budget});});
+    h+='</div>';
+  }else{
+    h+='<button class="bigbtn ghost mt12" data-act="budgetedit">🎯 Set a monthly budget</button>';
   }
 
   /* breakdown */
@@ -622,6 +674,69 @@ async function sha(s){
   return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
 
+/* ================= budget ================= */
+function spentByCat(ymv, catId){
+  return monthTxns(ymv).filter(t=>(t.kind==='exp'||!t.kind)&&(t.cat||'misc')===catId)
+    .reduce((a,t)=>a+pkrOf(t),0);
+}
+function budgetRows(ymv){
+  const rows=[];
+  CATS.forEach(c=>{const b=S.budgets.cats[c.id];
+    if(b>0) rows.push({cat:c, budget:b, spent:spentByCat(ymv,c.id)});});
+  return rows;
+}
+function overList(ymv){
+  const out=[];
+  budgetRows(ymv).forEach(r=>{if(r.spent>r.budget) out.push({name:r.cat.n, by:r.spent-r.budget});});
+  if(S.budgets.total>0){
+    const s=sums(ymv), tot=s.exp+s.pay;
+    if(tot>S.budgets.total) out.push({name:'Total spending', by:tot-S.budgets.total});
+  }
+  return out;
+}
+function budgetBar(r, emph){
+  const pct=r.budget>0?r.spent/r.budget*100:0;
+  const col=pct>100?'var(--red)':(pct>=80?'var(--amber)':'var(--accent)');
+  const over=r.spent-r.budget;
+  return '<div style="padding:10px 2px'+(emph?';border-bottom:1px solid var(--line)':'')+'">'
+    +'<div style="display:flex;justify-content:space-between;gap:8px;font-size:14px">'
+    +'<span'+(emph?' style="font-weight:800"':'')+'>'+r.icon+' '+esc(r.name)+'</span>'
+    +'<b style="white-space:nowrap">'+fmt(r.spent)+' <span style="color:var(--dim);font-weight:600">/ '+fmt(r.budget)+'</span></b></div>'
+    +'<div class="bar"><i style="width:'+Math.min(100,pct)+'%;background:'+col+'"></i></div>'
+    +(over>0
+      ?'<div style="font-size:11px;color:var(--red);font-weight:700;margin-top:5px">⚠️ over by '+fmt(over)+'</div>'
+      :'<div style="font-size:11px;color:var(--dim);margin-top:5px">'+fmt(r.budget-r.spent)+' left</div>')
+    +'</div>';
+}
+function budgetSheet(){
+  openSheet('<h3>Monthly budget</h3>'
+    +'<div style="font-size:11px;color:var(--dim);font-weight:700;margin-bottom:4px">TOTAL FOR THE MONTH (OPTIONAL)</div>'
+    +'<div class="frow"><input id="btot" type="number" inputmode="decimal" step="any" placeholder="No overall limit" value="'+(S.budgets.total||'')+'"></div>'
+    +'<div class="preview">Amounts in PKR. Leave a category blank for no limit. Budgets repeat every month and compare against that month\'s spending.</div>'
+    +'<div class="panel" style="padding:2px 14px">'
+    +CATS.map(c=>'<div class="setrow"><div><div class="sl">'+c.i+' '+c.n+'</div></div>'
+      +'<input class="bcat" data-bcat="'+c.id+'" type="number" inputmode="decimal" step="any" placeholder="—" value="'+(S.budgets.cats[c.id]||'')+'"></div>').join('')
+    +'</div>'
+    +'<button class="bigbtn mt12" data-act="budgetsave">Save budget</button>');
+}
+function toast(msg, danger){
+  let t=document.getElementById('toast');
+  if(!t){t=document.createElement('div'); t.id='toast'; document.body.appendChild(t);}
+  t.className='toast'+(danger?' danger':'');
+  t.textContent=msg;
+  requestAnimationFrame(()=>t.classList.add('show'));
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'), 4000);
+}
+// Warn right after an expense pushes a category to 80% or over its limit.
+function budgetToast(t){
+  const b=S.budgets.cats[t.cat];
+  if(!(b>0)) return;
+  const spent=spentByCat(t.date.slice(0,7), t.cat);
+  const name=catById(t.cat).n;
+  if(spent>b) toast('⚠️ '+name+' is over budget by '+fmt(spent-b), true);
+  else if(spent>=b*0.8) toast('⚠️ '+name+': '+fmt(spent)+' of '+fmt(b)+' used');
+}
+
 /* ================= trends ================= */
 const fmtK=n=>{n=Math.round(n); const a=Math.abs(n), sg=n<0?'-':'';
   if(a>=1e7) return sg+'Rs '+(a/1e7).toFixed(a>=1e8?0:1).replace(/\.0$/,'')+'cr';
@@ -727,6 +842,12 @@ function setHTML(){
       ?'<span><button class="smallbtn" data-act="pinchange">Change</button> <button class="smallbtn" data-act="pinoff">Remove</button></span>'
       :'<button class="smallbtn" data-act="pinset">Set PIN</button>')
     +'</div></div>'
+    +'<h2>Budget</h2><div class="panel">'
+    +'<div class="setrow"><div><div class="sl">Monthly budget</div>'
+    +'<div class="sd">'+(Object.keys(S.budgets.cats).length||S.budgets.total>0
+      ?(Object.keys(S.budgets.cats).length+' categories'+(S.budgets.total>0?' · total '+fmt(S.budgets.total):''))
+      :'Not set — get alerts when you overspend')+'</div></div>'
+    +'<button class="smallbtn" data-act="budgetedit">Edit</button></div></div>'
     +'<h2>Income tax on freelance remittances</h2><div class="panel">'
     +'<div class="setrow"><div><div class="sl">Tax preset</div><div class="sd">Final tax on IT-export proceeds</div></div>'
     +'<select id="taxpreset"><option value="pseb" '+(s.taxPreset==='pseb'?'selected':'')+'>PSEB registered — 0.25%</option>'
@@ -777,7 +898,8 @@ function editTxnSheet(t){
   if(t.kind==='exp') extra='<div class="frow"><select id="ecat">'+CATS.map(c=>'<option value="'+c.id+'" '+(t.cat===c.id?'selected':'')+'>'+c.i+' '+c.n+'</option>').join('')+'</select></div>';
   if(t.kind==='pay') extra='<div class="frow"><select id="eemp">'+S.employees.map(e=>'<option value="'+e.id+'" '+(t.empId===e.id?'selected':'')+'>'+esc(e.name)+'</option>').join('')+'</select></div>';
   if(t.kind==='exp'||t.kind==='pay') extra+='<div class="frow"><select id="esrc"><option value="">💳 Paid from — no account</option>'+acctOpts(t.srcId)+'</select></div>';
-  if(t.kind==='inc') extra+='<div class="frow"><select id="edst"><option value="">🏦 Deposit to — none</option>'+acctOpts(t.dstId,a=>a.kind==='bank')+'</select></div>';
+  if(t.kind==='inc') extra+='<div class="frow"><select id="edst"><option value="">💵 Landed in — no account</option>'+acctOpts(t.dstId,canDeposit)+'</select>'
+    +'<input id="etax" type="number" inputmode="decimal" step="any" value="'+(t.taxPct||0)+'" style="flex:0 0 92px" title="tax %"></div>';
   openSheet('<h3>Edit '+kindName+'</h3>'
     +'<div class="amtrow"><input id="eamt" type="number" inputmode="decimal" step="any" value="'+t.amt+'">'
     +'<select class="curbtn" id="ecur" style="min-width:90px"><option '+(t.cur==='PKR'?'selected':'')+'>PKR</option><option '+(t.cur==='USD'?'selected':'')+'>USD</option></select></div>'
@@ -845,9 +967,10 @@ function quickSave(){
   if(view.kind==='inc'){
     t.cur='USD';
     t.rate=parseFloat(document.getElementById('qrate').value)||rate();
-    t.taxPct=S.settings.taxPct;
+    const tx=parseFloat(document.getElementById('qtax').value);
+    t.taxPct=isNaN(tx)?S.settings.taxPct:tx;
     const dd=document.getElementById('qdst');
-    if(dd&&dd.value) t.dstId=dd.value;
+    if(dd&&dd.value){t.dstId=dd.value; S.settings.lastDst=dd.value;}
   }
   if(view.kind==='pay'){
     if(!view.empId){alert('Pick an employee (or add one in Team tab)'); return;}
@@ -856,6 +979,7 @@ function quickSave(){
     if(s&&s.value){t.srcId=s.value; S.settings.lastSrc=s.value;}
   }
   S.txns.push(t); save(); render();
+  if(t.kind==='exp') budgetToast(t);
 }
 
 function syncXfer(){
@@ -892,10 +1016,11 @@ function doExport(){
 function updateIncPreview(){
   const el=document.getElementById('incprev'); if(!el) return;
   const amt=parseFloat(document.getElementById('qamt').value)||0;
-  const qr=document.getElementById('qrate');
+  const qr=document.getElementById('qrate'), qt=document.getElementById('qtax');
   const r=(qr&&parseFloat(qr.value))||rate();
-  const g=amt*r, tx=g*S.settings.taxPct/100;
-  el.innerHTML='Gross: <b>'+fmt(g)+'</b> &nbsp;·&nbsp; Tax ('+S.settings.taxPct+'%): <b>'+fmt(tx)+'</b> &nbsp;·&nbsp; Net: <b>'+fmt(g-tx)+'</b>';
+  const tp=qt?(parseFloat(qt.value)||0):S.settings.taxPct;
+  const g=amt*r, tx=g*tp/100;
+  el.innerHTML='Gross: <b>'+fmt(g)+'</b> &nbsp;·&nbsp; Tax ('+tp+'%): <b>'+fmt(tx)+'</b> &nbsp;·&nbsp; Net: <b>'+fmt(g-tx)+'</b>';
 }
 
 /* ================= events ================= */
@@ -951,6 +1076,7 @@ document.addEventListener('click',e=>{
       const ee=document.getElementById('eemp'); if(ee) t.empId=ee.value;
       const es=document.getElementById('esrc'); if(es) t.srcId=es.value||undefined;
       const ed2=document.getElementById('edst'); if(ed2) t.dstId=ed2.value||undefined;
+      const et=document.getElementById('etax'); if(et&&!isNaN(parseFloat(et.value))) t.taxPct=parseFloat(et.value);
       save(); closeSheet(); render(); break;
     }
     case 'esavex':{
@@ -991,6 +1117,19 @@ document.addEventListener('click',e=>{
       S.txns.push(t); save(); closeSheet(); render(); break;
     }
     case 'eye': view.unmask=!view.unmask; render(); break;
+    case 'budgetedit': budgetSheet(); break;
+    case 'budgetsave':{
+      const tot=parseFloat(document.getElementById('btot').value);
+      S.budgets.total=(tot>0)?tot:0;
+      S.budgets.cats={};
+      document.querySelectorAll('[data-bcat]').forEach(i=>{
+        const v=parseFloat(i.value);
+        if(v>0) S.budgets.cats[i.dataset.bcat]=v;
+      });
+      view.tab='home'; save(); closeSheet(); render();
+      toast('Budget saved ✓');
+      break;
+    }
     case 'acctadd': acctSheet({cur:'PKR', kind:'bank'}); break;
     case 'asave':{
       const name=document.getElementById('aname').value.trim();
@@ -1096,6 +1235,11 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',e=>{
   if(e.target.id==='qfrom'||e.target.id==='qto') syncXfer();
+  // PK tax is charged when $ reaches a Pakistani bank — not while it sits in PayPal/Fiverr.
+  if(e.target.id==='qdst'){
+    const a=accById(e.target.value), qt=document.getElementById('qtax');
+    if(qt){qt.value=(a&&a.kind!=='bank')?0:S.settings.taxPct; updateIncPreview();}
+  }
   if(e.target.id==='impfile'){
     const f=e.target.files[0]; if(!f) return;
     const fr=new FileReader();
