@@ -151,7 +151,7 @@ nav button.on{color:var(--accent);}
 'use strict';
 /* ================= data ================= */
 const KEY='kharcha-data-v1';
-const APPVER='v6';
+const APPVER='v7';
 const CATS=[
   {id:'fuel',    n:'Fuel',            i:'⛽'},
   {id:'grocery', n:'Groceries',       i:'🛒'},
@@ -262,6 +262,12 @@ let view={tab:'home', ym:curYM(), kind:'exp', cur:'PKR', cat:'fuel', empId:null,
 const accById=id=>S.accounts.find(a=>a.id===id);
 const KINDS=[['bank','🏦 Bank (PKR, income lands here)'],['wallet','📱 Wallet'],['intl','🌍 International'],['platform','💼 Platform'],['cash','💵 Cash']];
 const kindIcon=k=>({bank:'🏦',wallet:'📱',intl:'🌍',platform:'💼',cash:'💵'}[k]||'🏦');
+// Convert an amount in `fromCur` into account `acct`'s currency.
+function convTo(amt, fromCur, acct, rt){
+  if(fromCur===acct.cur) return amt;
+  rt=rt||rate();
+  return acct.cur==='PKR' ? amt*rt : amt/rt;
+}
 function accBalance(a){
   let b=a.base||0;
   S.txns.forEach(t=>{
@@ -278,6 +284,22 @@ function accBalance(a){
       else if(a.cur==='PKR') b-=t.amt*(t.rate||rate());
       else b-=t.amt/(t.rate||rate());
     }
+  });
+  // Loans linked to this account move its balance:
+  //  lent  → principal leaves, repayments come back in
+  //  owe   → principal comes in, repayments go back out
+  S.loans.forEach(l=>{
+    if(l.acctId===a.id && l.amt>0){
+      const p=convTo(l.amt, l.cur, a, l.rate);
+      b+=(l.dir==='lent')?-p:p;
+    }
+    (l.payments||[]).forEach(pm=>{
+      const acc=('acctId' in pm)?pm.acctId:l.acctId; // legacy payments follow the loan
+      if(acc && acc===a.id){
+        const v=convTo(pm.amt, l.cur, a, pm.rate||l.rate);
+        b+=(l.dir==='lent')?v:-v;
+      }
+    });
   });
   return b;
 }
@@ -579,8 +601,10 @@ function loanEditSheet(l){
     +'<div class="frow"><input id="lperson" placeholder="Lender / borrower name" value="'+esc(l.person||'')+'"></div>'
     +'<div class="amtrow"><input id="lamt" type="number" inputmode="decimal" step="any" placeholder="Total amount" value="'+(l.amt||'')+'">'
     +'<select class="curbtn" id="lcur" style="min-width:90px"><option '+(l.cur!=='USD'?'selected':'')+'>PKR</option><option '+(l.cur==='USD'?'selected':'')+'>USD</option></select></div>'
+    +'<div style="font-size:11px;color:var(--dim);font-weight:700;margin:2px 2px 4px" id="lacctlabel">'+(l.dir==='lent'?'💸 Sent from account':'💵 Received into account')+'</div>'
+    +'<div class="frow"><select id="lacct"><option value="">Not linked to an account</option>'+acctOpts(l.acctId)+'</select></div>'
     +'<div class="frow"><input id="lstart" type="date" value="'+(l.start||todayStr())+'"><input id="ldue" type="date" value="'+(l.due||'')+'"></div>'
-    +'<div class="preview">Left date: when the loan was taken · Right date: agreed completion date</div>'
+    +'<div class="preview">Linking an account adjusts its balance automatically — the principal leaves (loan you gave) or arrives (loan you took), and repayments reverse it. Left date: when taken · Right date: agreed completion.</div>'
     +'<div class="frow"><input id="lnote" placeholder="Terms / note (optional)" value="'+esc(l.note||'')+'"></div>'
     +'<button class="bigbtn" data-act="lsave" data-id="'+(l.id||'')+'">Save</button>');
 }
@@ -592,13 +616,17 @@ function loanDetailSheet(l){
     +'<div class="t2">'+p.date+'</div></div>'
     +'<button class="smallbtn" data-act="lpaydel" data-id="'+l.id+'" data-pid="'+p.id+'">✕</button></div>').join('')
     ||'<div class="empty" style="padding:10px">No payments recorded yet.</div>';
+  const lacc=l.acctId?accById(l.acctId):null;
   openSheet('<h3>'+(l.dir==='owe'?'🔻 You owe — ':'🔺 Owes you — ')+esc(l.person)+'</h3>'
     +'<div class="preview">Remaining: <b>'+loanAmtTxt(rem,l)+'</b> of '+(l.cur==='USD'?fmtUSD(l.amt):fmt(l.amt))
     +(l.due?' &nbsp;·&nbsp; due <b>'+l.due+'</b>':'')
     +(l.start?' &nbsp;·&nbsp; taken '+l.start:'')
+    +(lacc?' &nbsp;·&nbsp; '+(l.dir==='lent'?'from ':'into ')+'<b>'+esc(lacc.name)+'</b>':'')
     +(l.note?'<br>'+esc(l.note):'')+'</div>'
     +'<div class="amtrow"><input id="lpamt" type="number" inputmode="decimal" step="any" placeholder="Payment in '+l.cur+'">'
     +'<input id="lpdate" type="date" value="'+todayStr()+'" style="flex:0 0 150px;font-size:15px;font-weight:600"></div>'
+    +'<div style="font-size:11px;color:var(--dim);font-weight:700;margin:0 2px 4px">'+(l.dir==='owe'?'💸 Paid from account':'💵 Received into account')+'</div>'
+    +'<div class="frow"><select id="lpacct"><option value="">Not linked</option>'+acctOpts(l.acctId)+'</select></div>'
     +'<button class="bigbtn" data-act="lpayadd" data-id="'+l.id+'">Record payment</button>'
     +'<h2 style="margin-top:18px">Payment history</h2><div style="margin:0 -4px">'+pays+'</div>'
     +'<button class="bigbtn ghost mt12" data-act="loaneditopen" data-id="'+l.id+'">Edit loan details</button>'
@@ -1177,11 +1205,12 @@ document.addEventListener('click',e=>{
       if(!(amt>0)){alert('Enter the loan amount'); break;}
       const obj={dir:document.getElementById('ldir').value, person, amt,
         cur:document.getElementById('lcur').value,
+        acctId:document.getElementById('lacct').value||undefined,
         start:document.getElementById('lstart').value||todayStr(),
         due:document.getElementById('ldue').value||'',
         note:document.getElementById('lnote').value.trim()};
-      if(d.id){Object.assign(S.loans.find(x=>x.id===d.id),obj);}
-      else{obj.id=uid(); obj.payments=[]; obj.settled=false; S.loans.push(obj);}
+      if(d.id){const ex=S.loans.find(x=>x.id===d.id); obj.rate=ex.rate||rate(); Object.assign(ex,obj);}
+      else{obj.id=uid(); obj.payments=[]; obj.settled=false; obj.rate=rate(); S.loans.push(obj);}
       view.tab='loan'; save(); closeSheet(); render(); break;
     }
     case 'lpayadd':{
@@ -1189,7 +1218,10 @@ document.addEventListener('click',e=>{
       const amt=parseFloat(document.getElementById('lpamt').value);
       if(!(amt>0)){alert('Enter a payment amount'); break;}
       l.payments=l.payments||[];
-      l.payments.push({id:uid(), amt, date:document.getElementById('lpdate').value||todayStr()});
+      const pm={id:uid(), amt, date:document.getElementById('lpdate').value||todayStr(),
+        acctId:document.getElementById('lpacct').value||''};
+      if(pm.acctId) pm.rate=rate();
+      l.payments.push(pm);
       if(loanRemaining(l)<=0) l.settled=true;
       save(); render(); loanDetailSheet(l); break;
     }
@@ -1235,6 +1267,10 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',e=>{
   if(e.target.id==='qfrom'||e.target.id==='qto') syncXfer();
+  if(e.target.id==='ldir'){
+    const lbl=document.getElementById('lacctlabel');
+    if(lbl) lbl.textContent=e.target.value==='lent'?'💸 Sent from account':'💵 Received into account';
+  }
   // PK tax is charged when $ reaches a Pakistani bank — not while it sits in PayPal/Fiverr.
   if(e.target.id==='qdst'){
     const a=accById(e.target.value), qt=document.getElementById('qtax');

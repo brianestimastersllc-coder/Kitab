@@ -1,4 +1,4 @@
-const CACHE = 'kharcha-v6';
+const CACHE = 'kharcha-v7';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-512.png'];
 
 // Precache the whole app on install so it works with no signal from then on.
