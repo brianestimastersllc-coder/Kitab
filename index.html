@@ -151,20 +151,25 @@ nav button.on{color:var(--accent);}
 'use strict';
 /* ================= data ================= */
 const KEY='kharcha-data-v1';
-const APPVER='v7';
+const APPVER='v8';
 const CATS=[
   {id:'fuel',    n:'Fuel',            i:'⛽'},
-  {id:'grocery', n:'Groceries',       i:'🛒'},
   {id:'daily',   n:'Daily Groceries', i:'🥬'},
   {id:'meals',   n:'Meal Charges',    i:'🍽️'},
   {id:'parking', n:'Car Parking',     i:'🅿️'},
-  {id:'rent',    n:'Room Rent',       i:'🏠'},
-  {id:'subs',    n:'Subscription',    i:'📱'},
   {id:'car',     n:'Car Maintenance', i:'🔧'},
-  {id:'services',n:'Services',        i:'🧾'},
+  {id:'subs',    n:'Subscription',    i:'📱'},
+  {id:'travel',  n:'Travel',          i:'✈️'},
+  {id:'medical', n:'Medical',         i:'🩺'},
   {id:'misc',    n:'Misc',            i:'📦'},
 ];
-const catById=id=>CATS.find(c=>c.id===id)||CATS[CATS.length-1];
+// Old categories kept only so historical entries still display with the right name.
+const LEGACY_CATS=[
+  {id:'grocery', n:'Groceries', i:'🛒'},
+  {id:'rent',    n:'Room Rent', i:'🏠'},
+  {id:'services',n:'Services',  i:'🧾'},
+];
+const catById=id=>CATS.find(c=>c.id===id)||LEGACY_CATS.find(c=>c.id===id)||CATS[CATS.length-1];
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const pad=n=>String(n).padStart(2,'0');
 const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());};
@@ -177,10 +182,11 @@ function seedAccounts(){
     mk('JazzCash','PKR','wallet'), mk('EasyPaisa','PKR','wallet'),
     mk('PayPal','USD','intl'), mk('Payoneer','USD','intl'), mk('Wise','USD','intl'),
     mk('Fiverr','USD','platform'), mk('Upwork','USD','platform'),
+    mk('Investments','PKR','invest'),
     mk('Cash','PKR','cash')
   ];
 }
-function seedBudgets(){ return {total:0, cats:{}}; }
+function seedBudgets(){ return {total:0, cats:{}, invest:0}; }
 function seed(){
   return {
     v:1,
@@ -191,15 +197,12 @@ function seed(){
     snapshots:[],
     budgets:seedBudgets(),
     recurring:[
-      {id:uid(), name:'Room Rent',        cat:'rent',    amount:0,     cur:'PKR', period:'monthly'},
-      {id:uid(), name:'Meal Charges',     cat:'meals',   amount:0,     cur:'PKR', period:'monthly'},
-      {id:uid(), name:'Car Parking',      cat:'parking', amount:0,     cur:'PKR', period:'monthly'},
-      {id:uid(), name:'KAM',              cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
-      {id:uid(), name:'ZAR',              cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
-      {id:uid(), name:'Apple',            cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
-      {id:uid(), name:'Claude',           cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
-      {id:uid(), name:'Meta',             cat:'subs',    amount:0,     cur:'USD', period:'monthly'},
-      {id:uid(), name:'Tax Return Filing',cat:'services',amount:0,     cur:'PKR', period:'yearly', month:9},
+      {id:uid(), name:'Room Rent', cat:'rent', amount:0, cur:'PKR', period:'monthly'},
+      {id:uid(), name:'KAM',       cat:'subs', amount:0, cur:'USD', period:'monthly'},
+      {id:uid(), name:'ZAR',       cat:'subs', amount:0, cur:'USD', period:'monthly'},
+      {id:uid(), name:'Apple',     cat:'subs', amount:0, cur:'USD', period:'monthly'},
+      {id:uid(), name:'Claude',    cat:'subs', amount:0, cur:'USD', period:'monthly'},
+      {id:uid(), name:'Meta',      cat:'subs', amount:0, cur:'USD', period:'monthly'},
     ],
     txns:[]
   };
@@ -210,6 +213,16 @@ function load(){
     if(!j.accounts)j.accounts=seedAccounts();
     if(!j.snapshots)j.snapshots=[];
     if(!j.budgets)j.budgets=seedBudgets();
+    if(j.budgets.invest===undefined)j.budgets.invest=0;
+    // Ensure an Investments holding account exists.
+    if(!j.accounts.some(a=>a.kind==='invest'))
+      j.accounts.push({id:uid(),name:'Investments',cur:'PKR',kind:'invest',base:0,updated:''});
+    // One-time: drop recurring bills that actually vary month to month.
+    if(!j.settings.mig2){
+      const drop=['meal charges','car parking','tax return filing','electric bill home','electricity bill home','electric bill'];
+      j.recurring=(j.recurring||[]).filter(r=>!drop.includes((r.name||'').trim().toLowerCase()));
+      j.settings.mig2=true;
+    }
     // One-time: the first seed used placeholder names for the $ accounts.
     // Only renames if the placeholder is untouched and the real name isn't taken.
     if(!j.settings.mig1){
@@ -260,8 +273,8 @@ let view={tab:'home', ym:curYM(), kind:'exp', cur:'PKR', cat:'fuel', empId:null,
 
 /* ================= accounts ================= */
 const accById=id=>S.accounts.find(a=>a.id===id);
-const KINDS=[['bank','🏦 Bank (PKR, income lands here)'],['wallet','📱 Wallet'],['intl','🌍 International'],['platform','💼 Platform'],['cash','💵 Cash']];
-const kindIcon=k=>({bank:'🏦',wallet:'📱',intl:'🌍',platform:'💼',cash:'💵'}[k]||'🏦');
+const KINDS=[['bank','🏦 Bank'],['wallet','📱 Wallet'],['intl','🌍 International'],['platform','💼 Platform'],['invest','📈 Investment'],['cash','💵 Cash']];
+const kindIcon=k=>({bank:'🏦',wallet:'📱',intl:'🌍',platform:'💼',invest:'📈',cash:'💵'}[k]||'🏦');
 // Convert an amount in `fromCur` into account `acct`'s currency.
 function convTo(amt, fromCur, acct, rt){
   if(fromCur===acct.cur) return amt;
@@ -279,10 +292,12 @@ function accBalance(a){
         const g=pkrOf(t), net=g-(g*(t.taxPct||0)/100);
         b+=(a.cur==='PKR')?net:net/(t.rate||rate());
       }
-    }else if(t.srcId===a.id){
-      if(t.cur===a.cur) b-=t.amt;
-      else if(a.cur==='PKR') b-=t.amt*(t.rate||rate());
-      else b-=t.amt/(t.rate||rate());
+    }else if(t.kind==='inv'){
+      // investing: money leaves the paying account and the same amount lands in the investment holding
+      if(t.srcId===a.id) b-=convTo(t.amt,t.cur,a,t.rate);
+      if(t.dstId===a.id) b+=convTo(t.amt,t.cur,a,t.rate);
+    }else if(t.srcId===a.id){ // expense / team pay
+      b-=convTo(t.amt,t.cur,a,t.rate);
     }
   });
   // Loans linked to this account move its balance:
@@ -306,6 +321,10 @@ function accBalance(a){
 const accPKR=a=>a.cur==='USD'?accBalance(a)*rate():accBalance(a);
 // Where freelance $ can land: PK banks, international ($ services) and platforms.
 const canDeposit=a=>a.kind==='bank'||a.kind==='intl'||a.kind==='platform';
+// Where day-to-day expenses are actually paid from: PK banks, wallets, cash.
+const canPayFrom=a=>a.kind==='bank'||a.kind==='wallet'||a.kind==='cash';
+// Where investment money is held.
+const isInvest=a=>a.kind==='invest';
 const acctOpts=(sel,filter)=>S.accounts.filter(filter||(()=>true))
   .map(a=>'<option value="'+a.id+'" '+(sel===a.id?'selected':'')+'>'+kindIcon(a.kind)+' '+esc(a.name)+' ('+a.cur+')</option>').join('');
 
@@ -329,13 +348,14 @@ function render(){
 
 function sums(ymv){
   const ts=monthTxns(ymv);
-  let inc=0,tax=0,exp=0,pay=0;
+  let inc=0,tax=0,exp=0,pay=0,invst=0;
   ts.forEach(t=>{
     if(t.kind==='inc'){inc+=incNet(t); tax+=incTax(t);}
     else if(t.kind==='pay'){pay+=pkrOf(t);}
+    else if(t.kind==='inv'){invst+=pkrOf(t);}       // moved to investments, not spent
     else if(t.kind!=='xfer') exp+=pkrOf(t);
   });
-  return {inc,tax,exp,pay,ts};
+  return {inc,tax,exp,pay,invst,ts};
 }
 
 function homeHTML(){
@@ -360,13 +380,14 @@ function homeHTML(){
   }
 
   /* quick add */
-  const srcSel='<div class="frow"><select id="qsrc"><option value="">💳 Paid from — no account</option>'+acctOpts(S.settings.lastSrc)+'</select></div>';
+  const srcSel='<div class="frow"><select id="qsrc"><option value="">💳 Paid from — no account</option>'+acctOpts(S.settings.lastSrc,canPayFrom)+'</select></div>';
   h+='<h2>Quick add</h2><div class="panel">'
     +'<div class="seg">'
     +'<button data-kind="exp" class="'+(view.kind==='exp'?'on':'')+'">Expense</button>'
     +'<button data-kind="inc" class="'+(view.kind==='inc'?'on':'')+'">Income</button>'
+    +'<button data-kind="inv" class="'+(view.kind==='inv'?'on':'')+'">Invest</button>'
     +'<button data-kind="pay" class="'+(view.kind==='pay'?'on':'')+'">Team</button>'
-    +'<button data-kind="xfer" class="'+(view.kind==='xfer'?'on':'')+'">Transfer</button>'
+    +'<button data-kind="xfer" class="'+(view.kind==='xfer'?'on':'')+'">Move</button>'
     +'</div>';
   if(view.kind==='xfer'){
     const f=accById(view.xfrom), t2=accById(view.xto);
@@ -396,6 +417,13 @@ function homeHTML(){
       +'<input id="qtax" type="number" inputmode="decimal" step="any" value="'+taxDef+'" style="width:100%"></div>'
       +'</div>'
       +'<div class="preview" id="incprev">Type an amount. Both boxes are editable — tax auto-drops to 0 when the $ lands in a foreign account (PK tax applies later, when it reaches your bank).</div>';
+  }
+  if(view.kind==='inv'){
+    const invs=S.accounts.filter(isInvest);
+    const invSel=S.settings.lastInv||(invs[0]&&invs[0].id)||'';
+    h+='<div class="frow"><select id="qinv">'+invs.map(a=>'<option value="'+a.id+'" '+(invSel===a.id?'selected':'')+'>📈 '+esc(a.name)+'</option>').join('')+'</select></div>'
+      +srcSel
+      +'<div class="preview">Investing isn\'t spending — the money moves out of your account into <b>'+esc((accById(invSel)||{name:'Investments'}).name)+'</b> and stays in your net worth. Set a monthly cap in Budget if you want an alert.</div>';
   }
   if(view.kind==='pay'){
     if(S.employees.length===0){
@@ -434,14 +462,16 @@ function homeHTML(){
 
   /* budget */
   const brows=budgetRows(view.ym);
-  if(brows.length||S.budgets.total>0){
+  const hasInvCap=S.budgets.invest>0;
+  if(brows.length||S.budgets.total>0||hasInvCap){
+    const smb=sums(view.ym);
     h+='<div class="hrow"><h2>Budget — '+MONTHS[+view.ym.slice(5,7)-1]+'</h2>'
       +'<button class="smallbtn" data-act="budgetedit">Edit</button></div><div class="panel">';
-    if(S.budgets.total>0){
-      const s=sums(view.ym);
-      h+=budgetBar({name:'Total spending', icon:'📊', spent:s.exp+s.pay, budget:S.budgets.total}, brows.length>0);
-    }
-    brows.forEach(r=>{h+=budgetBar({name:r.cat.n, icon:r.cat.i, spent:r.spent, budget:r.budget});});
+    if(S.budgets.total>0)
+      h+=budgetBar({name:'Total spending', icon:'📊', spent:smb.exp+smb.pay, budget:S.budgets.total}, brows.length>0||hasInvCap);
+    brows.forEach((r,i)=>{h+=budgetBar({name:r.cat.n, icon:r.cat.i, spent:r.spent, budget:r.budget}, hasInvCap&&i===brows.length-1);});
+    if(hasInvCap)
+      h+=budgetBar({name:'Investments', icon:'📈', spent:smb.invst, budget:S.budgets.invest});
     h+='</div>';
   }else{
     h+='<button class="bigbtn ghost mt12" data-act="budgetedit">🎯 Set a monthly budget</button>';
@@ -494,9 +524,10 @@ function txnRow(t){
   }
   if(t.kind==='inc'){ico='💵'; t1='Freelance Income';}
   else if(t.kind==='pay'){const e=S.employees.find(e=>e.id===t.empId); ico='👥'; t1='Pay — '+(e?e.name:'employee');}
+  else if(t.kind==='inv'){const d2=accById(t.dstId); ico='📈'; t1='Invest → '+(d2?d2.name:'Investments');}
   else{const c=catById(t.cat); ico=c.i; t1=c.n;}
   if(t.note) t1+=' · '+t.note;
-  const sign=t.kind==='inc'?'+':'−';
+  const sign=t.kind==='inc'?'+':t.kind==='inv'?'→':'−';
   const cls=t.kind==='inc'?'pos':'';
   const main=t.kind==='inc'?fmt(incNet(t)):fmt(pkrOf(t));
   let orig='';
@@ -655,7 +686,7 @@ function wealthHTML(){
     +'<div class="card"><div class="lbl">Accounts</div><div class="val">'+m(total)+'</div></div>'
     +'<div class="card"><div class="lbl">Loans net</div><div class="val '+(owed-owe>=0?'pos':'neg')+'">'+m(owed-owe)+'</div></div>'
     +'<div class="card"><div class="lbl">Net worth</div><div class="val pos">'+m(net)+'</div></div></div>';
-  [['bank','🏦 Banks'],['wallet','📱 Wallets'],['intl','🌍 International'],['platform','💼 Platforms'],['cash','💵 Cash']].forEach(([k,label])=>{
+  [['bank','🏦 Banks'],['wallet','📱 Wallets'],['intl','🌍 International'],['platform','💼 Platforms'],['invest','📈 Investments'],['cash','💵 Cash']].forEach(([k,label])=>{
     const as=S.accounts.filter(a=>a.kind===k);
     if(!as.length) return;
     h+='<h2>'+label+'</h2><div class="panel" style="padding:2px 14px">'+as.map(a=>{
@@ -720,6 +751,10 @@ function overList(ymv){
     const s=sums(ymv), tot=s.exp+s.pay;
     if(tot>S.budgets.total) out.push({name:'Total spending', by:tot-S.budgets.total});
   }
+  if(S.budgets.invest>0){
+    const iv=sums(ymv).invst;
+    if(iv>S.budgets.invest) out.push({name:'Investments', by:iv-S.budgets.invest});
+  }
   return out;
 }
 function budgetBar(r, emph){
@@ -738,8 +773,10 @@ function budgetBar(r, emph){
 }
 function budgetSheet(){
   openSheet('<h3>Monthly budget</h3>'
-    +'<div style="font-size:11px;color:var(--dim);font-weight:700;margin-bottom:4px">TOTAL FOR THE MONTH (OPTIONAL)</div>'
+    +'<div style="font-size:11px;color:var(--dim);font-weight:700;margin-bottom:4px">TOTAL SPENDING FOR THE MONTH (OPTIONAL)</div>'
     +'<div class="frow"><input id="btot" type="number" inputmode="decimal" step="any" placeholder="No overall limit" value="'+(S.budgets.total||'')+'"></div>'
+    +'<div style="font-size:11px;color:var(--dim);font-weight:700;margin-bottom:4px">📈 INVESTMENT CAP FOR THE MONTH (OPTIONAL)</div>'
+    +'<div class="frow"><input id="binv" type="number" inputmode="decimal" step="any" placeholder="No investment limit" value="'+(S.budgets.invest||'')+'"></div>'
     +'<div class="preview">Amounts in PKR. Leave a category blank for no limit. Budgets repeat every month and compare against that month\'s spending.</div>'
     +'<div class="panel" style="padding:2px 14px">'
     +CATS.map(c=>'<div class="setrow"><div><div class="sl">'+c.i+' '+c.n+'</div></div>'
@@ -764,6 +801,14 @@ function budgetToast(t){
   if(spent>b) toast('⚠️ '+name+' is over budget by '+fmt(spent-b), true);
   else if(spent>=b*0.8) toast('⚠️ '+name+': '+fmt(spent)+' of '+fmt(b)+' used');
 }
+// Warn when investment contributions cross the monthly cap.
+function investToast(t){
+  const b=S.budgets.invest;
+  if(!(b>0)) return;
+  const iv=sums(t.date.slice(0,7)).invst;
+  if(iv>b) toast('⚠️ Investments over cap by '+fmt(iv-b), true);
+  else if(iv>=b*0.8) toast('📈 Invested '+fmt(iv)+' of '+fmt(b)+' cap');
+}
 
 /* ================= trends ================= */
 const fmtK=n=>{n=Math.round(n); const a=Math.abs(n), sg=n<0?'-':'';
@@ -784,24 +829,32 @@ function currentNetWorth(){
   const owe=act.filter(l=>l.dir==='owe').reduce((a,l)=>a+loanPKR(loanRemaining(l),l),0);
   return total+owed-owe;
 }
+// Two trend lines (earned vs spent) with the gap shaded; the selected month
+// gets a dashed connector so the difference reads at a glance.
 function inOutChart(data, sel){
-  const W=340,H=210,base=104,maxBar=76,pad=10;
+  const W=340,H=200,padX=16,top=20,bot=H-26,n=data.length;
   const max=Math.max(1,...data.flatMap(d=>[d.inc,d.out]));
-  const n=data.length, gw=(W-2*pad)/n;
-  let bars='',labels='',taps='';
+  const sx=n>1?(W-2*padX)/(n-1):0;
+  const X=i=>padX+sx*i, Y=v=>bot-v/max*(bot-top);
+  const inc=data.map((d,i)=>[X(i),Y(d.inc)]), out=data.map((d,i)=>[X(i),Y(d.out)]);
+  const path=pts=>pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const band='M'+inc.map(p=>p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' L')
+    +' L'+out.slice().reverse().map(p=>p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' L')+' Z';
+  let dots='',labels='',taps='',selMark='';
   data.forEach((d,i)=>{
-    const cx=pad+gw*i+gw/2, bw=Math.min(24,gw*0.5);
-    const ih=d.inc/max*maxBar, oh=d.out/max*maxBar;
-    const on=sel===d.ym, op=on?1:.4;
-    if(ih>0.5) bars+='<rect x="'+(cx-bw/2)+'" y="'+(base-2-ih)+'" width="'+bw+'" height="'+ih+'" rx="4" fill="var(--green)" opacity="'+op+'"/>';
-    if(oh>0.5) bars+='<rect x="'+(cx-bw/2)+'" y="'+(base+2)+'" width="'+bw+'" height="'+oh+'" rx="4" fill="var(--red)" opacity="'+op+'"/>';
-    const mn=MONTHS[+d.ym.slice(5,7)-1].slice(0,3);
-    labels+='<text x="'+cx+'" y="'+(H-6)+'" text-anchor="middle" font-size="11" font-weight="700" fill="'+(on?'var(--txt)':'var(--dim)')+'">'+mn+'</text>';
-    taps+='<rect x="'+(pad+gw*i)+'" y="0" width="'+gw+'" height="'+(H-16)+'" fill="transparent" data-tsel="'+d.ym+'"/>';
+    const on=sel===d.ym;
+    dots+='<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(d.inc).toFixed(1)+'" r="'+(on?4.5:3)+'" fill="var(--green)"/>';
+    dots+='<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(d.out).toFixed(1)+'" r="'+(on?4.5:3)+'" fill="var(--red)"/>';
+    labels+='<text x="'+X(i).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle" font-size="11" font-weight="700" fill="'+(on?'var(--txt)':'var(--dim)')+'">'+MONTHS[+d.ym.slice(5,7)-1].slice(0,3)+'</text>';
+    taps+='<rect x="'+(X(i)-(sx||W)/2).toFixed(1)+'" y="0" width="'+(sx||W).toFixed(1)+'" height="'+(H-16)+'" fill="transparent" data-tsel="'+d.ym+'"/>';
+    if(on) selMark='<line x1="'+X(i).toFixed(1)+'" y1="'+Y(d.inc).toFixed(1)+'" x2="'+X(i).toFixed(1)+'" y2="'+Y(d.out).toFixed(1)+'" stroke="var(--txt)" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.55"/>';
   });
   return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block">'
-    +'<line x1="'+pad+'" y1="'+base+'" x2="'+(W-pad)+'" y2="'+base+'" stroke="var(--line)" stroke-width="1"/>'
-    +bars+labels+taps+'</svg>';
+    +'<path d="'+band+'" fill="var(--green)" opacity="0.09"/>'
+    +selMark
+    +'<path d="'+path(out)+'" fill="none" stroke="var(--red)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+    +'<path d="'+path(inc)+'" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+    +dots+labels+taps+'</svg>';
 }
 function nwChart(points, mask){
   const W=340,H=150,pad=12,top=16,bot=H-22,n=points.length;
@@ -837,8 +890,8 @@ function trendsHTML(){
   const sd=data.find(d=>d.ym===sel);
   h+='<h2>Money in vs out</h2><div class="panel">'
     +'<div style="display:flex;gap:14px;font-size:12px;font-weight:700;color:var(--dim);margin-bottom:8px">'
-    +'<span><span style="color:var(--green)">▲</span> Earned</span>'
-    +'<span><span style="color:var(--red)">▼</span> Spent</span>'
+    +'<span><span style="color:var(--green)">●</span> Earned</span>'
+    +'<span><span style="color:var(--red)">●</span> Spent</span>'
     +'<span style="margin-left:auto">tap a month ↓</span></div>'
     +inOutChart(data,sel)
     +'<div class="preview" style="margin:10px 0 0"><b>'+ymLabel(sel)+'</b><br>Earned '+fmt(sd.inc)+' · Spent '+fmt(sd.out)+' · <b class="'+(sd.saved>=0?'pos':'neg')+'">'+(sd.saved>=0?'Saved ':'Over by ')+fmt(Math.abs(sd.saved))+'</b></div>'
@@ -921,11 +974,16 @@ function editTxnSheet(t){
       +'<button class="bigbtn danger mt8" data-act="edel" data-id="'+t.id+'">Delete transfer</button>');
     return;
   }
-  const kindName=t.kind==='inc'?'Income':t.kind==='pay'?'Team payment':'Expense';
+  const kindName=t.kind==='inc'?'Income':t.kind==='pay'?'Team payment':t.kind==='inv'?'Investment':'Expense';
   let extra='';
-  if(t.kind==='exp') extra='<div class="frow"><select id="ecat">'+CATS.map(c=>'<option value="'+c.id+'" '+(t.cat===c.id?'selected':'')+'>'+c.i+' '+c.n+'</option>').join('')+'</select></div>';
+  if(t.kind==='exp'){
+    let catOpts=CATS.map(c=>'<option value="'+c.id+'" '+(t.cat===c.id?'selected':'')+'>'+c.i+' '+c.n+'</option>').join('');
+    if(t.cat && !CATS.some(c=>c.id===t.cat)){const lc=catById(t.cat); catOpts='<option value="'+t.cat+'" selected>'+lc.i+' '+lc.n+' (old)</option>'+catOpts;}
+    extra='<div class="frow"><select id="ecat">'+catOpts+'</select></div>';
+  }
   if(t.kind==='pay') extra='<div class="frow"><select id="eemp">'+S.employees.map(e=>'<option value="'+e.id+'" '+(t.empId===e.id?'selected':'')+'>'+esc(e.name)+'</option>').join('')+'</select></div>';
-  if(t.kind==='exp'||t.kind==='pay') extra+='<div class="frow"><select id="esrc"><option value="">💳 Paid from — no account</option>'+acctOpts(t.srcId)+'</select></div>';
+  if(t.kind==='inv') extra='<div class="frow"><select id="einv">'+acctOpts(t.dstId,isInvest)+'</select></div>';
+  if(t.kind==='exp'||t.kind==='pay'||t.kind==='inv') extra+='<div class="frow"><select id="esrc"><option value="">💳 Paid from — no account</option>'+acctOpts(t.srcId,canPayFrom)+'</select></div>';
   if(t.kind==='inc') extra+='<div class="frow"><select id="edst"><option value="">💵 Landed in — no account</option>'+acctOpts(t.dstId,canDeposit)+'</select>'
     +'<input id="etax" type="number" inputmode="decimal" step="any" value="'+(t.taxPct||0)+'" style="flex:0 0 92px" title="tax %"></div>';
   openSheet('<h3>Edit '+kindName+'</h3>'
@@ -1000,6 +1058,13 @@ function quickSave(){
     const dd=document.getElementById('qdst');
     if(dd&&dd.value){t.dstId=dd.value; S.settings.lastDst=dd.value;}
   }
+  if(view.kind==='inv'){
+    const inv=document.getElementById('qinv');
+    if(!inv||!inv.value){alert('Pick an investment holding (add one in Wealth if needed)'); return;}
+    t.dstId=inv.value; S.settings.lastInv=inv.value;
+    const s=document.getElementById('qsrc');
+    if(s&&s.value){t.srcId=s.value; S.settings.lastSrc=s.value;}
+  }
   if(view.kind==='pay'){
     if(!view.empId){alert('Pick an employee (or add one in Team tab)'); return;}
     t.empId=view.empId;
@@ -1008,6 +1073,7 @@ function quickSave(){
   }
   S.txns.push(t); save(); render();
   if(t.kind==='exp') budgetToast(t);
+  if(t.kind==='inv') investToast(t);
 }
 
 function syncXfer(){
@@ -1103,6 +1169,7 @@ document.addEventListener('click',e=>{
       const ec=document.getElementById('ecat'); if(ec) t.cat=ec.value;
       const ee=document.getElementById('eemp'); if(ee) t.empId=ee.value;
       const es=document.getElementById('esrc'); if(es) t.srcId=es.value||undefined;
+      const ei=document.getElementById('einv'); if(ei) t.dstId=ei.value||undefined;
       const ed2=document.getElementById('edst'); if(ed2) t.dstId=ed2.value||undefined;
       const et=document.getElementById('etax'); if(et&&!isNaN(parseFloat(et.value))) t.taxPct=parseFloat(et.value);
       save(); closeSheet(); render(); break;
@@ -1149,6 +1216,8 @@ document.addEventListener('click',e=>{
     case 'budgetsave':{
       const tot=parseFloat(document.getElementById('btot').value);
       S.budgets.total=(tot>0)?tot:0;
+      const iv=parseFloat(document.getElementById('binv').value);
+      S.budgets.invest=(iv>0)?iv:0;
       S.budgets.cats={};
       document.querySelectorAll('[data-bcat]').forEach(i=>{
         const v=parseFloat(i.value);
