@@ -151,7 +151,7 @@ nav button.on{color:var(--accent);}
 'use strict';
 /* ================= data ================= */
 const KEY='kharcha-data-v1';
-const APPVER='v8';
+const APPVER='v9';
 const CATS=[
   {id:'fuel',    n:'Fuel',            i:'⛽'},
   {id:'daily',   n:'Daily Groceries', i:'🥬'},
@@ -222,6 +222,14 @@ function load(){
       const drop=['meal charges','car parking','tax return filing','electric bill home','electricity bill home','electric bill'];
       j.recurring=(j.recurring||[]).filter(r=>!drop.includes((r.name||'').trim().toLowerCase()));
       j.settings.mig2=true;
+    }
+    // One-time: enable Payoneer & Wise as "Paid from" accounts.
+    if(!j.settings.mig3){
+      j.accounts.forEach(a=>{
+        const nm=(a.name||'').toLowerCase();
+        if(nm.includes('payoneer')||nm==='wise') a.payFrom=true;
+      });
+      j.settings.mig3=true;
     }
     // One-time: the first seed used placeholder names for the $ accounts.
     // Only renames if the placeholder is untouched and the real name isn't taken.
@@ -321,8 +329,9 @@ function accBalance(a){
 const accPKR=a=>a.cur==='USD'?accBalance(a)*rate():accBalance(a);
 // Where freelance $ can land: PK banks, international ($ services) and platforms.
 const canDeposit=a=>a.kind==='bank'||a.kind==='intl'||a.kind==='platform';
-// Where day-to-day expenses are actually paid from: PK banks, wallets, cash.
-const canPayFrom=a=>a.kind==='bank'||a.kind==='wallet'||a.kind==='cash';
+// Where day-to-day expenses are paid from. Per-account `payFrom` overrides the
+// kind default (PK banks / wallets / cash), so any account can be toggled in or out.
+const canPayFrom=a=>a.payFrom===true?true:a.payFrom===false?false:(a.kind==='bank'||a.kind==='wallet'||a.kind==='cash');
 // Where investment money is held.
 const isInvest=a=>a.kind==='invest';
 const acctOpts=(sel,filter)=>S.accounts.filter(filter||(()=>true))
@@ -716,6 +725,8 @@ function acctSheet(a){
     +'<select class="curbtn" id="acur" style="min-width:90px"><option '+(a.cur!=='USD'?'selected':'')+'>PKR</option><option '+(a.cur==='USD'?'selected':'')+'>USD</option></select></div>'
     +'<div class="frow"><input id="aname" placeholder="Account name" value="'+esc(a.name||'')+'"></div>'
     +'<div class="frow"><select id="akind">'+KINDS.map(([k,n])=>'<option value="'+k+'" '+(a.kind===k?'selected':'')+'>'+n+'</option>').join('')+'</select></div>'
+    +'<label class="setrow" style="cursor:pointer;border-bottom:none"><div><div class="sl">Show in "Paid from"</div><div class="sd">Pay expenses from this account</div></div>'
+    +'<input type="checkbox" id="apayfrom" '+(canPayFrom(a)?'checked':'')+' style="width:22px;height:22px;flex:0 0 auto"></label>'
     +'<button class="bigbtn" data-act="asave" data-id="'+(a.id||'')+'">Save</button>'
     +(isNew?'':'<button class="bigbtn danger mt8" data-act="adel" data-id="'+a.id+'">Delete account</button>'));
 }
@@ -1233,12 +1244,13 @@ document.addEventListener('click',e=>{
       if(!name){alert('Give the account a name'); break;}
       const cur=document.getElementById('acur').value, kind=document.getElementById('akind').value;
       const balv=parseFloat(document.getElementById('abal').value);
+      const payFrom=document.getElementById('apayfrom').checked;
       if(d.id){
         const a=accById(d.id); if(!a) break;
-        a.name=name; a.kind=kind; a.cur=cur;
+        a.name=name; a.kind=kind; a.cur=cur; a.payFrom=payFrom;
         if(!isNaN(balv)){a.base+=balv-accBalance(a); a.updated=todayStr();}
       }else{
-        const a={id:uid(), name, cur, kind, base:0, updated:''};
+        const a={id:uid(), name, cur, kind, base:0, updated:'', payFrom};
         if(!isNaN(balv)){a.base=balv; a.updated=todayStr();}
         S.accounts.push(a);
       }
