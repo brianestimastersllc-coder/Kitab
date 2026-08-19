@@ -151,7 +151,7 @@ nav button.on{color:var(--accent);}
 'use strict';
 /* ================= data ================= */
 const KEY='kharcha-data-v1';
-const APPVER='v9';
+const APPVER='v10';
 const CATS=[
   {id:'fuel',    n:'Fuel',            i:'⛽'},
   {id:'daily',   n:'Daily Groceries', i:'🥬'},
@@ -450,8 +450,9 @@ function homeHTML(){
     h+='<h2>Due this month</h2><div class="panel">'+due.map(r=>{
       const c=catById(r.cat);
       const amtTxt=r.amount>0?(r.cur==='USD'?fmtUSD(r.amount)+' ≈ '+fmt(r.amount*rate()):fmt(r.amount)):'set amount';
+      const acc=r.acctId?accById(r.acctId):null;
       return '<div class="item" data-recpay="'+r.id+'"><div class="ico">'+c.i+'</div>'
-        +'<div class="mid"><div class="t1">'+esc(r.name)+'</div><div class="t2">'+amtTxt+(r.period==='yearly'?' · yearly':'')+'</div></div>'
+        +'<div class="mid"><div class="t1">'+esc(r.name)+'</div><div class="t2">'+amtTxt+(r.period==='yearly'?' · yearly':'')+(acc?' · from '+esc(acc.name):'')+'</div></div>'
         +'<button class="duebtn" data-recpay="'+r.id+'">Paid ✓</button></div>';
     }).join('')+'</div>';
   }
@@ -568,8 +569,9 @@ function recHTML(){
     const amt=r.amount>0?(r.cur==='USD'?fmtUSD(r.amount)+' ≈ '+fmt(r.amount*rate()):fmt(r.amount)):'tap to set amount';
     const per=r.period==='yearly'?('yearly · '+MONTHS[(r.month||1)-1]):'monthly';
     const paid=isPaid(r);
+    const acc=r.acctId?accById(r.acctId):null;
     return '<div class="item" data-recedit="'+r.id+'"><div class="ico">'+c.i+'</div>'
-      +'<div class="mid"><div class="t1">'+esc(r.name)+'</div><div class="t2">'+amt+' · '+per+'</div></div>'
+      +'<div class="mid"><div class="t1">'+esc(r.name)+'</div><div class="t2">'+amt+' · '+per+(acc?' · from '+esc(acc.name):'')+'</div></div>'
       +'<span class="pill '+(paid?'paid':'')+'">'+(paid?'paid ✓':'pending')+'</span></div>';
   }).join('');
   h+='</div><button class="bigbtn ghost mt12" data-act="recadd">+ Add recurring item</button>'
@@ -1016,6 +1018,8 @@ function editRecSheet(r){
     +'<div class="frow"><select id="rcat">'+CATS.map(c=>'<option value="'+c.id+'" '+(r.cat===c.id?'selected':'')+'>'+c.i+' '+c.n+'</option>').join('')+'</select>'
     +'<select id="rper"><option value="monthly" '+(r.period!=='yearly'?'selected':'')+'>Monthly</option><option value="yearly" '+(r.period==='yearly'?'selected':'')+'>Yearly</option></select></div>'
     +'<div class="frow"><select id="rmonth">'+MONTHS.map((m,i)=>'<option value="'+(i+1)+'" '+((r.month||1)===i+1?'selected':'')+'>'+m+'</option>').join('')+'</select><span style="align-self:center;color:var(--dim);font-size:13px;white-space:nowrap">due month (yearly)</span></div>'
+    +'<div style="font-size:11px;color:var(--dim);font-weight:700;margin:2px 2px 4px">💳 PAID FROM (DEFAULT)</div>'
+    +'<div class="frow"><select id="racct"><option value="">Ask me each time</option>'+acctOpts(r.acctId)+'</select></div>'
     +'<button class="bigbtn" data-act="rsave" data-id="'+(r.id||'')+'">Save</button>'
     +(isNew?'':'<button class="bigbtn danger mt8" data-act="rdel" data-id="'+r.id+'">Delete item</button>'));
 }
@@ -1104,10 +1108,18 @@ function syncXfer(){
 
 function markRecPaid(id){
   const r=S.recurring.find(r=>r.id===id); if(!r) return;
-  if(!(r.amount>0)){editRecSheet(r); return;}
-  const t={id:uid(), kind:'exp', date:todayStr(), note:r.name, amt:r.amount, cur:r.cur, cat:r.cat, recId:r.id};
-  if(r.cur==='USD') t.rate=rate();
-  S.txns.push(t); save(); render();
+  if(!(r.amount>0)){editRecSheet(r); return;}  // set an amount first
+  payBillSheet(r);
+}
+function payBillSheet(r){
+  openSheet('<h3>Pay '+esc(r.name)+'</h3>'
+    +'<div class="amtrow"><input id="bpamt" type="number" inputmode="decimal" step="any" value="'+(r.amount||'')+'">'
+    +'<span class="curbtn" style="display:flex;align-items:center;justify-content:center;min-width:74px;font-size:18px">'+r.cur+'</span></div>'
+    +'<div style="font-size:11px;color:var(--dim);font-weight:700;margin:0 2px 4px">💳 PAID FROM</div>'
+    +'<div class="frow"><select id="bpacct"><option value="">No account</option>'+acctOpts(r.acctId)+'</select></div>'
+    +'<div class="frow"><input id="bpdate" type="date" value="'+todayStr()+'"></div>'
+    +'<div class="preview">Records the payment and, if an account is chosen, subtracts it from that balance. The account you pick becomes this bill\'s default next month.</div>'
+    +'<button class="bigbtn" data-act="billpay" data-id="'+r.id+'">Record payment ✓</button>');
 }
 
 function doExport(){
@@ -1202,7 +1214,8 @@ document.addEventListener('click',e=>{
       const obj={
         name, amount:parseFloat(document.getElementById('ramt').value)||0,
         cur:document.getElementById('rcur').value, cat:document.getElementById('rcat').value,
-        period:document.getElementById('rper').value, month:+document.getElementById('rmonth').value
+        period:document.getElementById('rper').value, month:+document.getElementById('rmonth').value,
+        acctId:document.getElementById('racct').value||undefined
       };
       if(d.id){Object.assign(S.recurring.find(r=>r.id===d.id),obj);}
       else{obj.id=uid(); S.recurring.push(obj);}
@@ -1212,6 +1225,20 @@ document.addEventListener('click',e=>{
       if(confirm('Delete this recurring item? Past payments stay in history.')){
         S.recurring=S.recurring.filter(r=>r.id!==d.id); save(); closeSheet(); render();
       } break;
+    case 'billpay':{
+      const r=S.recurring.find(x=>x.id===d.id); if(!r) break;
+      const amt=parseFloat(document.getElementById('bpamt').value);
+      if(!(amt>0)){alert('Enter the amount'); break;}
+      const acct=document.getElementById('bpacct').value;
+      const t={id:uid(), kind:'exp', date:document.getElementById('bpdate').value||todayStr(),
+        note:r.name, amt, cur:r.cur, cat:r.cat, recId:r.id};
+      if(r.cur==='USD') t.rate=rate();
+      if(acct) t.srcId=acct;
+      r.acctId=acct||undefined;   // remember for next month
+      S.txns.push(t); save(); closeSheet(); render();
+      budgetToast(t);
+      break;
+    }
     case 'psave':{
       const amt=parseFloat(document.getElementById('pamt').value);
       if(!(amt>0)){alert('Enter an amount'); break;}
