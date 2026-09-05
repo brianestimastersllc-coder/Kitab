@@ -151,7 +151,7 @@ nav button.on{color:var(--accent);}
 'use strict';
 /* ================= data ================= */
 const KEY='kharcha-data-v1';
-const APPVER='v10';
+const APPVER='v11';
 const CATS=[
   {id:'fuel',    n:'Fuel',            i:'⛽'},
   {id:'daily',   n:'Daily Groceries', i:'🥬'},
@@ -636,6 +636,38 @@ function loansHTML(){
   return h;
 }
 
+// Build a native iPhone calendar event (.ics) for a loan's return date,
+// with a 5pm alert that fires a notification + sound on the day.
+function icsEsc(s){return String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n');}
+function loanICS(l){
+  if(!l.due) return null;
+  const d=l.due.replace(/-/g,'');            // YYYYMMDD
+  const z=n=>String(n).padStart(2,'0');
+  const now=new Date();
+  const stamp=now.getUTCFullYear()+z(now.getUTCMonth()+1)+z(now.getUTCDate())+'T'+z(now.getUTCHours())+z(now.getUTCMinutes())+z(now.getUTCSeconds())+'Z';
+  const rem=loanRemaining(l), amtTxt=l.cur==='USD'?fmtUSD(rem):fmt(rem);
+  const title=l.dir==='owe'?('Repay '+(l.person||'loan')):('Collect loan from '+(l.person||''));
+  const desc=(l.dir==='owe'?'You owe ':'Owed to you: ')+amtTxt+(l.note?(' — '+l.note):'')+' · via Kharcha';
+  return [
+    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Kharcha//Loan//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH',
+    'BEGIN:VEVENT','UID:loan-'+(l.id||stamp)+'@kharcha','DTSTAMP:'+stamp,
+    'DTSTART:'+d+'T170000','DTEND:'+d+'T173000',
+    'SUMMARY:💰 '+icsEsc(title),'DESCRIPTION:'+icsEsc(desc),
+    'BEGIN:VALARM','ACTION:DISPLAY','DESCRIPTION:'+icsEsc(title),'TRIGGER:PT0S','END:VALARM',
+    'END:VEVENT','END:VCALENDAR'
+  ].join('\r\n');
+}
+function addLoanReminder(l){
+  const ics=loanICS(l);
+  if(!ics){toast('Add a return date to the loan first'); return;}
+  const blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=((l.person||'loan').replace(/[^\w]+/g,'_'))+'-return.ics';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{a.remove(); URL.revokeObjectURL(url);}, 5000);
+}
+
 function loanEditSheet(l){
   const isNew=!l.id;
   openSheet('<h3>'+(isNew?'Add loan':'Edit loan')+'</h3>'
@@ -646,7 +678,7 @@ function loanEditSheet(l){
     +'<div style="font-size:11px;color:var(--dim);font-weight:700;margin:2px 2px 4px" id="lacctlabel">'+(l.dir==='lent'?'💸 Sent from account':'💵 Received into account')+'</div>'
     +'<div class="frow"><select id="lacct"><option value="">Not linked to an account</option>'+acctOpts(l.acctId)+'</select></div>'
     +'<div class="frow"><input id="lstart" type="date" value="'+(l.start||todayStr())+'"><input id="ldue" type="date" value="'+(l.due||'')+'"></div>'
-    +'<div class="preview">Linking an account adjusts its balance automatically — the principal leaves (loan you gave) or arrives (loan you took), and repayments reverse it. Left date: when taken · Right date: agreed completion.</div>'
+    +'<div class="preview">Linking an account adjusts its balance automatically — the principal leaves (loan you gave) or arrives (loan you took), and repayments reverse it. Left date: when taken · Right date: agreed completion. Set a completion date and, on saving, you can add a <b>5pm iPhone reminder</b> for that day.</div>'
     +'<div class="frow"><input id="lnote" placeholder="Terms / note (optional)" value="'+esc(l.note||'')+'"></div>'
     +'<button class="bigbtn" data-act="lsave" data-id="'+(l.id||'')+'">Save</button>');
 }
@@ -671,7 +703,10 @@ function loanDetailSheet(l){
     +'<div class="frow"><select id="lpacct"><option value="">Not linked</option>'+acctOpts(l.acctId)+'</select></div>'
     +'<button class="bigbtn" data-act="lpayadd" data-id="'+l.id+'">Record payment</button>'
     +'<h2 style="margin-top:18px">Payment history</h2><div style="margin:0 -4px">'+pays+'</div>'
-    +'<button class="bigbtn ghost mt12" data-act="loaneditopen" data-id="'+l.id+'">Edit loan details</button>'
+    +(l.due
+      ?'<a class="bigbtn ghost mt12" style="display:block;text-align:center;text-decoration:none;color:var(--txt)" href="data:text/calendar;charset=utf-8,'+encodeURIComponent(loanICS(l))+'" download="'+((l.person||'loan').replace(/[^\w]+/g,'_'))+'-return.ics">📅 Add 5pm reminder to iPhone ('+l.due+')</a>'
+      :'<div class="preview mt12">Add a return date (Edit loan details) to enable a 5pm iPhone reminder.</div>')
+    +'<button class="bigbtn ghost mt8" data-act="loaneditopen" data-id="'+l.id+'">Edit loan details</button>'
     +'<button class="bigbtn ghost mt8" data-act="lsettle" data-id="'+l.id+'">'+(l.settled?'Reopen loan':'Mark fully settled ✓')+'</button>'
     +'<button class="bigbtn danger mt8" data-act="ldel" data-id="'+l.id+'">Delete loan</button>');
 }
@@ -1317,9 +1352,13 @@ document.addEventListener('click',e=>{
         start:document.getElementById('lstart').value||todayStr(),
         due:document.getElementById('ldue').value||'',
         note:document.getElementById('lnote').value.trim()};
+      const isNewLoan=!d.id;
       if(d.id){const ex=S.loans.find(x=>x.id===d.id); obj.rate=ex.rate||rate(); Object.assign(ex,obj);}
       else{obj.id=uid(); obj.payments=[]; obj.settled=false; obj.rate=rate(); S.loans.push(obj);}
-      view.tab='loan'; save(); closeSheet(); render(); break;
+      view.tab='loan'; save(); closeSheet(); render();
+      // Auto-offer the native 5pm iPhone reminder for a brand-new loan with a return date.
+      if(isNewLoan && obj.due){ addLoanReminder(obj); toast('📅 Tap "Add" to save the 5pm reminder'); }
+      break;
     }
     case 'lpayadd':{
       const l=S.loans.find(x=>x.id===d.id); if(!l) break;
